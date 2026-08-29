@@ -74,6 +74,8 @@ export interface Party {
   /** Shift-minute stamp. Elapsed time is DERIVED against the clock, never stored (§2). */
   seatedAt: number;
   course: CourseStage;
+  /** Shift-minute this party entered its current course. Dwell is derived against it. */
+  courseAt: number;
   notes: string;
   allergies: string[];
   vip: boolean;

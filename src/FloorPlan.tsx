@@ -16,6 +16,8 @@ const WALL = 2;
 const CHAIR = 3;
 /** Chairs sit flush to the aisle: at 8-10 cells between tables, any more overlaps. */
 const CHAIR_GAP = 1;
+/** Cells per station concurrency slot: a 2-cell block plus a 1-cell gap. */
+const SLOT_PITCH = 3;
 /** Corner notch, in cells. The mockup's signature — square objects are never square. */
 const NOTCH = 1;
 /** Top of the dining floor: below the kitchen line and its wall. */
@@ -90,11 +92,17 @@ function PixelText({
 interface Props {
   plan: Plan;
   parties: Party[];
+  /** Items cooking right now at each station type, from stationLoad(state). */
+  cooking?: Record<string, number>;
+  /** Items fired and waiting for a slot at each station type. */
+  queued?: Record<string, number>;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }
 
-export default function FloorPlan({ plan, parties, selectedId, onSelect }: Props) {
+export default function FloorPlan({
+  plan, parties, cooking = {}, queued = {}, selectedId, onSelect,
+}: Props) {
   const { bounds } = plan;
   const sectionOf = new Map(plan.sections.flatMap((s) => s.tableIds.map((id) => [id, s] as const)));
   const partyAt = new Map(parties.filter((p) => p.tableId).map((p) => [p.tableId!, p]));
@@ -145,14 +153,49 @@ export default function FloorPlan({ plan, parties, selectedId, onSelect }: Props
       {plan.stations.map((s) => {
         const x = s.x - s.w / 2;
         const y = s.y - s.h / 2;
+        const busy = cooking[s.type] ?? 0;
+        const waiting = queued[s.type] ?? 0;
+        // The pass is a hand-off, not a burner: it gets the ticket rail pane, not slots.
+        const slots = s.type === 'pass' ? 0 : s.concurrency;
+        // SLOT_PITCH cells per slot, a 2-cell block in each. Integer cells throughout (§6.1).
+        const runStart = s.x - Math.round((slots * SLOT_PITCH - 1) / 2);
+        const label = [
+          s.name,
+          slots ? `${busy} of ${s.concurrency} cooking` : `${busy} at the pass`,
+          waiting ? `${waiting} waiting for a slot` : null,
+        ]
+          .filter(Boolean)
+          .join(', ');
         return (
-          <g key={s.id}>
+          <g key={s.id} role="img" aria-label={label}>
             <polygon points={notched(x, y, s.w, s.h)} fill="var(--counter)" stroke="var(--counter-dk)" strokeWidth="1" />
+            {/* A station with a backlog runs hot. Amber is a fill, never text (§6.1). */}
+            {waiting > 0 && <polygon points={notched(x, y, s.w, s.h)} fill="var(--amber)" opacity="0.42" />}
             <rect x={x + 1} y={y + 1} width={s.w - 2} height="1" fill="var(--select)" opacity="0.18" />
             <rect x={x + 1} y={y + s.h - 2} width={s.w - 2} height="1" fill="#0c1a14" opacity="0.4" />
-            <PixelText x={s.x} y={s.y} size={4} fill="var(--select)" shadow="rgba(12,26,20,.55)">
+            <PixelText
+              x={s.x}
+              y={slots ? s.y - 2 : s.y}
+              size={4}
+              fill="var(--select)"
+              shadow="rgba(12,26,20,.55)"
+            >
               {s.name.toUpperCase()}
             </PixelText>
+
+            {/* One block per concurrency slot, filled while something is on it. Occupancy
+                as a count of filled blocks, so the kitchen reads in greyscale too. */}
+            {Array.from({ length: slots }, (_, i) => (
+              <rect
+                key={i}
+                x={runStart + i * SLOT_PITCH}
+                y={s.y + 2}
+                width="2"
+                height="2"
+                fill={i < busy ? 'var(--select)' : '#0c1a14'}
+                opacity={i < busy ? 1 : 0.38}
+              />
+            ))}
           </g>
         );
       })}
@@ -199,6 +242,8 @@ export default function FloorPlan({ plan, parties, selectedId, onSelect }: Props
               }
             }}
           >
+            {/* A guest fills their chair. Occupancy as a filled block, not a hue shift,
+                so the room visibly fills in greyscale and at video compression. */}
             {chairs(t).map(([cx, cy], i) => (
               <rect
                 key={i}
@@ -206,15 +251,16 @@ export default function FloorPlan({ plan, parties, selectedId, onSelect }: Props
                 y={cy - CHAIR / 2}
                 width={CHAIR}
                 height={CHAIR}
-                fill="var(--chair)"
+                fill={i < (party?.size ?? 0) ? 'var(--select)' : 'var(--chair)'}
                 stroke="var(--chair-back)"
                 strokeWidth="1"
               />
             ))}
 
             {footprint({ fill: 'url(#plank)', stroke: 'var(--edge)', strokeWidth: 1 })}
-            {/* Section identity tints the top, the way the mockup tints by status. */}
-            {footprint({ fill: `var(${section?.color ?? '--panel'})`, opacity: 0.34 })}
+            {/* Section identity tints the top, the way the mockup tints by status.
+                An occupied table wears its section colour at full strength. */}
+            {footprint({ fill: `var(${section?.color ?? '--panel'})`, opacity: party ? 0.72 : 0.28 })}
 
             {/* Bevel: every object in the mockup is lit from above. */}
             {round ? (

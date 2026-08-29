@@ -358,3 +358,26 @@ button { font-family: inherit; }
 .floor .table:focus-visible .halo,
 .floor .table:hover .halo { display: block; }
 .halo { display: none; }
+
+/* Transport — the shift clock controls (SOUS_PLAN.md §2, the time engine) ---- */
+
+.transport { display: flex; align-items: center; gap: 6px; }
+.tbtn {
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: var(--pixel);
+  font-size: 9.5px;
+  letter-spacing: 0.6px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.tbtn--sm { padding: 6px 7px; }
+.tbtn:hover:not(:disabled) { background: var(--hover); }
+.tbtn:disabled { opacity: 0.4; cursor: default; }
+.tbtn[aria-pressed='true'] {
+  background: var(--sage-tint);
+  border-color: var(--sage-dk);
+  color: var(--sage-dk);
+}

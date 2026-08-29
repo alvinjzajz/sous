@@ -1,26 +1,55 @@
-// Day 1 shell: the seed scenario rendered read-only, in the three-column layout
-// from "../Sous Restaurant Manager.html". No mutations, no clock, no tools yet — days 2, 3 and 5
-// (SOUS_PLAN.md §8). The mode buttons switch chrome only; nothing behind them runs.
-import { useMemo, useState } from 'react';
+// The shell: the three-column layout from "../Sous Restaurant Manager.html", now driven
+// by the live simulation. Mutations, the conflict engine and the tools are days 3 and 5
+// (SOUS_PLAN.md §8); five of the six detail panes are day 4.
+import { useEffect, useState } from 'react';
 import FloorPlan from './FloorPlan.tsx';
 import { seedState } from './seed.ts';
+import { advanceTo, serviceOver, stationLoad, tick } from './sim.ts';
 import { CELL_M, fmtClock } from './types.ts';
+import type { Shift, SousState } from './types.ts';
 
 const MODES = [
   { id: 'design', name: 'Design', blurb: 'Build the room' },
   { id: 'service', name: 'Service', blurb: 'Run the night' },
 ] as const;
 
+/** Real seconds per shift-minute is 1 at 1x, so 60x runs the whole night in five minutes. */
+const SPEEDS = [1, 8, 60] as const;
+/** 7:15 PM — the room the demo opens on (§9, 1:15). */
+const PEAK = 135;
+
 export default function App() {
-  const state = useMemo(() => seedState(), []);
+  const [state, setState] = useState<SousState>(seedState);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mode, setMode] = useState<'design' | 'service'>(state.shift.mode);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
 
-  const { plan, shift, reservations, notes, waitlist, parties, menu } = state;
+  const { plan, shift, reservations, waitlist, parties, menu } = state;
+  const mode = shift.mode;
+  // Notes are written during service and surface when their minute comes round (§7).
+  const notes = state.notes.filter((n) => n.createdAt <= shift.clock);
+
+  // THE TICK PATH. Separate from the mutation path, and it never pushes an undo
+  // snapshot (§2, rule 1). `tick` is pure, so React 19's double-invoked updater in
+  // StrictMode produces the same minute twice rather than advancing two.
+  useEffect(() => {
+    if (!shift.running) return;
+    const id = setInterval(() => setState(tick), Math.max(16, 1000 / shift.speed));
+    return () => clearInterval(id);
+  }, [shift.running, shift.speed]);
+
+  const over = serviceOver(state);
+  const setShift = (patch: Partial<Shift>) =>
+    setState((s) => ({ ...s, shift: { ...s.shift, ...patch } }));
+  /** Fast-forward through the book. Same seed, same room, every run (§7). */
+  const jumpTo = (minute: number) =>
+    setState((s) =>
+      advanceTo({ ...s, shift: { ...s.shift, mode: 'service', running: false } }, minute),
+    );
   const seats = plan.tables.reduce((n, t) => n + t.seats, 0);
-  const seated = parties.reduce((n, p) => n + p.size, 0);
+  // Departed parties stay in state so the night has a history; they are not in the room.
+  const live = parties.filter((p) => p.course !== 'departed');
+  const seated = live.reduce((n, p) => n + p.size, 0);
   const booked = reservations.reduce((n, r) => n + r.size, 0);
   const roomM = (n: number) => +(n * CELL_M).toFixed(1);
   const sentence = (v: string) => v[0].toUpperCase() + v.slice(1);
@@ -53,7 +82,7 @@ export default function App() {
                 key={m.id}
                 className="mode"
                 aria-pressed={mode === m.id}
-                onClick={() => setMode(m.id)}
+                onClick={() => setShift({ mode: m.id })}
               >
                 <strong>{m.name}</strong>
                 <span>{m.blurb}</span>
@@ -110,15 +139,48 @@ export default function App() {
               {seats} seats · {plan.sections.length} sections
             </p>
           </div>
-          <div className={mode === 'service' ? 'pill pill--service' : 'pill'}>
-            <i />
-            {mode === 'design' ? 'DESIGN' : 'SERVICE'} · {fmtClock(shift.clock)}
+          <div className="transport">
+            <div className={mode === 'service' ? 'pill pill--service' : 'pill'}>
+              <i />
+              {over ? 'CLOSED' : mode === 'design' ? 'DESIGN' : 'SERVICE'} · {fmtClock(shift.clock)}
+            </div>
+            <button
+              className="tbtn"
+              aria-pressed={shift.running}
+              disabled={over}
+              onClick={() => setShift({ running: !shift.running, mode: 'service' })}
+            >
+              {shift.running ? '❚❚ Pause' : '▶ Run'}
+            </button>
+            {SPEEDS.map((x) => (
+              <button
+                key={x}
+                className="tbtn tbtn--sm"
+                aria-pressed={shift.speed === x}
+                onClick={() => setShift({ speed: x })}
+              >
+                {x}×
+              </button>
+            ))}
+            <button className="tbtn" onClick={() => jumpTo(PEAK)} disabled={shift.clock >= PEAK}>
+              → 7:15
+            </button>
+            <button className="tbtn" onClick={() => setState(seedState())}>
+              Reset
+            </button>
           </div>
         </header>
 
         <div className="stage">
           <div className="floorFrame">
-            <FloorPlan plan={plan} parties={parties} selectedId={selectedId} onSelect={setSelectedId} />
+            <FloorPlan
+              plan={plan}
+              parties={parties}
+              cooking={stationLoad(state)}
+              queued={stationLoad(state, 'queued')}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
           </div>
         </div>
 

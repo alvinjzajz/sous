@@ -9,9 +9,10 @@ A submission for [the WebMCP Challenge](https://webmcp.devpost.com/). WebMCP let
 page register tools an AI agent can call directly, so the agent and the person are working
 on the *same live page* rather than through an API.
 
-**Status: in progress.** Day 1 of 6 is complete — domain model, seed scenario and the
-floor-plan renderer. The simulation engine, mutations, detail panes and the WebMCP tool
-surface are still to come.
+**Status: in progress.** Days 1 and 2 of 6 are complete — domain model, seed scenario,
+floor-plan renderer and the simulation engine. Mutations, the conflict engine, the detail
+panes and the WebMCP tool surface are still to come, so **nothing below about tools
+describes shipped code yet**; it describes what is being built.
 
 ## The idea
 
@@ -44,7 +45,7 @@ npm run dev
 | Script | What |
 |---|---|
 | `npm run dev` | Vite dev server |
-| `npm run check` | Seed consistency asserts — seat totals, integer geometry, table overlap, 915 mm aisle clearance, section coverage, menu routing |
+| `npm run check` | Both check scripts: seed consistency (seat totals, integer geometry, table overlap, 915 mm aisle clearance, section coverage, menu routing) and a headless open-to-close shift |
 | `npm run build` | Type-check and production build |
 | `npm run lint` | oxlint |
 
@@ -56,8 +57,9 @@ To use the agent side you need WebMCP enabled: Chrome with
 
 ## How it is built
 
-React + Vite + TypeScript. **No backend, no database, no auth** — state lives in memory
-and autosaves to `localStorage`. No chart, drag or state-management libraries.
+React + Vite + TypeScript. **No backend, no database, no auth** — state lives in memory.
+No chart, drag or state-management libraries. (`localStorage` autosave is planned, not yet
+implemented.)
 
 - `src/types.ts` — the domain model. All geometry is in **cells** (1 cell = 0.125 m), so
   the SVG `viewBox` is itself the pixel grid. Timestamps are absolute shift-minutes;
@@ -70,7 +72,15 @@ and autosaves to `localStorage`. No chart, drag or state-management libraries.
 - `src/FloorPlan.tsx` — the floor, as inline SVG rather than canvas. Every table is a real
   focusable `role="button"` node, so click handling, focus rings, keyboard navigation and
   screen-reader labels come free.
-- `scripts/check-seed.ts` — the consistency check above.
+- `src/sim.ts` — the simulation engine. `tick(state) → state` is pure and React-free, so
+  it runs headless. Parties advance on dwell timers; items do not start cooking when a
+  ticket is fired but when a slot frees at their station, so fire time and start time are
+  two different stamps. Service ends when the last table leaves, not at a fixed hour.
+- `scripts/check-seed.ts`, `scripts/check-sim.ts` — the checks above. The simulation check
+  walks a whole shift a minute at a time and asserts, every minute, that nothing finishes
+  before it starts, no station exceeds its concurrency, courses land together and never run
+  backwards, and one party sits per table — then that the night resolves with the room
+  empty. It also asserts `tick` is pure and that the same seed replays the same evening.
 
 ### On the pixel art
 
@@ -90,14 +100,22 @@ conflict engine, checked against the ADA 2010 §403.5.1 accessible-route minimum
 No backend, no accounts, no PII, no money — which deletes most of the classic
 vulnerability list and leaves two risks that genuinely apply: **indirect prompt injection**
 (anything the agent reads is a potential instruction) and the fact that **the tool surface
-is effectively an unauthenticated public API**. Tools returning user-typed text are marked
-`untrustedContentHint`, user strings never reach a tool schema, and the pin rule is
-asymmetric so a successful injection still cannot unprotect what a human protected.
+is effectively an unauthenticated public API**.
 
-`window.__sous` is a deliberate, documented exposure for testing and the Chrome evals
-harness. It is read/write access to app state for any script on the page — acceptable for a
+The tool surface does not exist yet, so these are commitments the build is being held to,
+not properties you can audit in this tree today: tools returning user-typed text will carry
+`untrustedContentHint`; user strings will never reach a tool schema, only author-controlled
+registries will; and the pin rule will be asymmetric — an agent may pin, only a human may
+unpin — so a successful injection still cannot unprotect what a human protected.
+
+What *is* true of this tree today: no `dangerouslySetInnerHTML` or `innerHTML` anywhere, no
+user-controlled `href`/`src`/`style`, no production source maps, no secrets (there is
+nowhere to put one), and a clean `npm audit` over two runtime dependencies.
+
+`window.__sous` is planned as a deliberate, documented exposure for testing and the Chrome
+evals harness — read/write access to app state for any script on the page, acceptable for a
 demo with no real data, and called out here so it reads as a decision rather than an
-oversight.
+oversight when it lands.
 
 ## Licence
 
