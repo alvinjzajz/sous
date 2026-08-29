@@ -1,0 +1,12 @@
+Sous bundles two third-party fonts, each under the SIL Open Font License 1.1.
+Neither is modified. Full licence texts ship alongside the font files.
+
+Silkscreen
+  Copyright 2001 The Silkscreen Project Authors
+  public/fonts/silkscreen-latin.woff2
+  public/fonts/Silkscreen-OFL.txt
+
+Instrument Sans
+  Copyright 2022 The Instrument Sans Project Authors
+  public/fonts/instrument-sans-latin.woff2
+  public/fonts/InstrumentSans-OFL.txt

@@ -101,5 +101,5 @@ oversight.
 
 ## Licence
 
-MIT — see [LICENSE](./LICENSE), which also covers the bundled Silkscreen and Instrument
-Sans fonts (SIL Open Font License 1.1).
+MIT — see [LICENSE](./LICENSE). The bundled Silkscreen and Instrument Sans fonts are SIL
+Open Font License 1.1; see [NOTICE](./NOTICE).

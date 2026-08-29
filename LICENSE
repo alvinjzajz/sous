@@ -19,15 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Bundled third-party assets:
-
-Silkscreen (public/fonts/silkscreen-latin.woff2) — Copyright 2001 The Silkscreen
-Project Authors, licensed under the SIL Open Font License 1.1. Full text in
-public/fonts/Silkscreen-OFL.txt
-
-Instrument Sans (public/fonts/instrument-sans-latin.woff2) — Copyright 2022 The
-Instrument Sans Project Authors, licensed under the SIL Open Font License 1.1.
-Full text in public/fonts/InstrumentSans-OFL.txt
