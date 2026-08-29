@@ -72,7 +72,7 @@ const sections: Section[] = [
   { id: 'sec-sage', name: 'Sage', serverName: 'Rosa', color: '--sage', tableIds: ['T1', 'T2', 'T3', 'T4'] },
   { id: 'sec-amber', name: 'Amber', serverName: 'Dmitri', color: '--amber', tableIds: ['T5', 'T6', 'T7', 'T8'] },
   { id: 'sec-rose', name: 'Rose', serverName: 'Priya', color: '--rose', tableIds: ['T9', 'T10', 'T11', 'T12'] },
-  { id: 'sec-bar', name: 'Bar', serverName: 'Tomas', color: '--tan', tableIds: ['T13', 'T14', 'T15', 'T16'] },
+  { id: 'sec-bar', name: 'Bar', serverName: 'Tomas', color: '--clay', tableIds: ['T13', 'T14', 'T15', 'T16'] },
 ];
 
 export const floorPlan: FloorPlan = { bounds: ROOM, gridSize: 4, walls, tables, stations, sections };
