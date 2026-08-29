@@ -199,9 +199,10 @@ export function quoteWait(s: SousState, size: number): number {
  *
  * ponytail: orders are composed, never entered. Ceiling — nobody, human or agent, can
  * tell Sous what a table actually asked for; `swap_ticket_item` editing a line after the
- * fact is the only way in. Upgrade is an optional `items` argument on fireTicket that
- * falls back to this, which `fire_course` then takes as a parameter. Deliberate for the
- * hackathon (SOUS_PLAN.md §11); revisit before anyone runs a real service on this.
+ * fact is the only way in. The upgrade is now scheduled, not deferred: an optional `items`
+ * argument here that falls back to this function, exposed by `fire_course` on day 5, with
+ * the human-side menu picker conditional on day 4 (SOUS_PLAN.md §8). Delete this comment
+ * when `items` lands.
  */
 export function compose(s: SousState, party: Party, course: MenuCourse): TicketItem[] {
   const rng = mulberry32(s.shift.seed ^ hash(`${party.id}:${course}`));
