@@ -1,0 +1,138 @@
+/* Mise palette + base (MISE_PLAN.md §6.1).
+   Two registers on one screen: the floor plan is pixel-art, everything else is clean. */
+
+/* Self-hosted, not the Google Fonts CDN, because §12.2 commits to default-src 'self'.
+   Latin subset only (8 KB). Licence: public/fonts/Silkscreen-OFL.txt */
+@font-face {
+  font-family: 'Silkscreen';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/silkscreen-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+2212, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* ground */
+  --paper: #f4efe4;
+  --panel: #eae2d2;
+  --line: #d6cbb4;
+  /* ink */
+  --ink: #2e2a22;
+  --ink-mute: #6b6152;
+  /* accents — FILLS ONLY unless suffixed for text */
+  --sage: #6e9b57;
+  --sage-dk: #4f7a3a;
+  --tan: #c89f6b;
+  --clay: #8a6a45;
+  --amber: #d9a441;
+  --rose: #b9705f;
+  --alert: #a8462c;
+
+  --ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --pixel: "Silkscreen", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.5 var(--ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Clean register: the app chrome ------------------------------------------- */
+
+.app {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.topbar {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.wordmark {
+  font-family: var(--pixel);
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+
+.tagline { color: var(--ink-mute); font-size: 13px; }
+.spacer { flex: 1; }
+
+.clock {
+  font-family: var(--pixel);
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: 1fr minmax(240px, 300px);
+  gap: 20px;
+  padding: 20px;
+  align-items: start;
+}
+
+.rail {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 14px 16px;
+}
+
+.rail h2 {
+  font: 600 11px/1 var(--ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  margin: 0 0 10px;
+}
+
+.rail dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+.rail dt { color: var(--ink-mute); }
+.rail dd { margin: 0; }
+
+.legend { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 6px; }
+.legend li { display: flex; align-items: center; gap: 8px; }
+.swatch { width: 12px; height: 12px; border: 1px solid var(--ink); flex: none; }
+
+/* Pixel register: the floor plan ------------------------------------------- */
+
+.floor {
+  /* 6x integer scale at any viewport wide enough to hold it, so the cell grid
+     lands on whole device pixels and the pixel font stays crisp. */
+  width: 816px;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  /* No antialiasing: hard pixel edges, and jaggy circles for free. */
+  shape-rendering: crispEdges;
+}
+
+.floor text {
+  font-family: var(--pixel);
+  fill: var(--ink);
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  user-select: none;
+}
+
+.floor .table:focus-visible { outline: none; }
+.floor .table:focus-visible .tableShape { stroke: var(--alert); stroke-width: 2; }
+.floor .table { cursor: pointer; }
+.floor .table:hover .tableShape { stroke-width: 2; }
