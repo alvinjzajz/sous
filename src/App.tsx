@@ -1,6 +1,6 @@
 // Day 1 shell: the seed scenario rendered read-only, in the three-column layout
-// from "../Mise Restaurant Manager.html". No mutations, no clock, no tools yet — days 2, 3 and 5
-// (MISE_PLAN.md §8). The mode buttons switch chrome only; nothing behind them runs.
+// from "../Sous Restaurant Manager.html". No mutations, no clock, no tools yet — days 2, 3 and 5
+// (SOUS_PLAN.md §8). The mode buttons switch chrome only; nothing behind them runs.
 import { useMemo, useState } from 'react';
 import FloorPlan from './FloorPlan.tsx';
 import { seedState } from './seed.ts';
@@ -38,7 +38,7 @@ export default function App() {
         <aside className="rail rail--left">
           <div className="brand">
             <div>
-              <h1 className="wordmark">MISE</h1>
+              <h1 className="wordmark">SOUS</h1>
               <small>Bistro Verdant · Rue Sud</small>
             </div>
             <button className="chevron chevron--sm" onClick={() => setLeftOpen(false)} title="Collapse">
@@ -97,7 +97,7 @@ export default function App() {
           <button className="chevron" onClick={() => setLeftOpen(true)} title="Expand">
             ›
           </button>
-          <span className="railSpine">MISE</span>
+          <span className="railSpine">SOUS</span>
         </aside>
       )}
 

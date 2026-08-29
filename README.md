@@ -1,6 +1,6 @@
-# Mise
+# Sous
 
-*mise en place — everything in its place.*
+*Your second on the line.*
 
 One restaurant, one screen, one dinner service. You and your agent design the room, then
 run it together.
@@ -94,7 +94,7 @@ is effectively an unauthenticated public API**. Tools returning user-typed text 
 `untrustedContentHint`, user strings never reach a tool schema, and the pin rule is
 asymmetric so a successful injection still cannot unprotect what a human protected.
 
-`window.__mise` is a deliberate, documented exposure for testing and the Chrome evals
+`window.__sous` is a deliberate, documented exposure for testing and the Chrome evals
 harness. It is read/write access to app state for any script on the page — acceptable for a
 demo with no real data, and called out here so it reads as a decision rather than an
 oversight.

@@ -1,4 +1,4 @@
-// Seed scenario (MISE_PLAN.md §7): Saturday night at a neighbourhood bistro.
+// Seed scenario (SOUS_PLAN.md §7): Saturday night at a neighbourhood bistro.
 // 16 tables / 60 seats, 4 sections, 5 stations + bar, 22 menu items,
 // 12 reservations totalling 38 covers, 2 service notes timed to surface mid-shift.
 //
@@ -7,7 +7,7 @@
 //
 // All geometry is in cells (1 cell = 0.125 m). Room is 136 x 108 cells = 17 m x 13.5 m.
 import type {
-  FloorPlan, MenuItem, MiseState, Reservation, Section, ServiceNote, Station, Table, Wall,
+  FloorPlan, MenuItem, SousState, Reservation, Section, ServiceNote, Station, Table, Wall,
 } from './types.ts';
 
 export const SEED = 20260903;
@@ -142,7 +142,7 @@ export const notes: ServiceNote[] = [
   },
 ];
 
-export function seedState(): MiseState {
+export function seedState(): SousState {
   return structuredClone({
     plan: floorPlan,
     parties: [],

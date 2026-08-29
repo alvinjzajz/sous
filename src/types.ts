@@ -1,4 +1,4 @@
-// Mise domain model (MISE_PLAN.md §2).
+// Sous domain model (SOUS_PLAN.md §2).
 //
 // GEOMETRY UNITS: every x/y/w/h in this file is in CELLS, never metres or pixels.
 // 1 cell = 0.125 m. The floor-plan SVG viewBox is measured in cells, so a cell is
@@ -161,7 +161,7 @@ export interface Shift {
   mode: 'design' | 'service';
 }
 
-export interface MiseState {
+export interface SousState {
   plan: FloorPlan;
   parties: Party[];
   reservations: Reservation[];

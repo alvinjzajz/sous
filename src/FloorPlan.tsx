@@ -1,4 +1,4 @@
-// The pixel-art floor (MISE_PLAN.md §6.1), styled to match "../Mise Restaurant Manager.html".
+// The pixel-art floor (SOUS_PLAN.md §6.1), styled to match "../Sous Restaurant Manager.html".
 //
 // Inline SVG, not absolutely-positioned divs like the mockup: every table is a real
 // focusable node, so click handling, focus rings, keyboard nav and screen-reader

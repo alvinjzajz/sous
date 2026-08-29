@@ -1,6 +1,6 @@
 // Runnable consistency check for the seed scenario: npm run check
 //
-// The seed is the single biggest execution risk (MISE_PLAN.md §7) — every tool
+// The seed is the single biggest execution risk (SOUS_PLAN.md §7) — every tool
 // depends on its shape, and an inconsistent room fails silently rather than loudly.
 // Asserts only; no framework.
 import { readFileSync } from 'node:fs';

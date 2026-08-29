@@ -1,4 +1,4 @@
-/* Mise palette + shell (MISE_PLAN.md §6.1, styled to match "../Mise Restaurant Manager.html").
+/* Sous palette + shell (SOUS_PLAN.md §6.1, styled to match "../Sous Restaurant Manager.html").
    Two registers on one screen: the floor is pixel-art, the chrome around it is clean. */
 
 /* Self-hosted, not the Google Fonts CDN, because §12.2 commits to default-src 'self'.
