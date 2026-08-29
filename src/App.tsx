@@ -1,5 +1,5 @@
 // Day 1 shell: the seed scenario rendered read-only, in the three-column layout
-// from ../Mise.dc.html. No mutations, no clock, no tools yet — days 2, 3 and 5
+// from "../Mise Restaurant Manager.html". No mutations, no clock, no tools yet — days 2, 3 and 5
 // (MISE_PLAN.md §8). The mode buttons switch chrome only; nothing behind them runs.
 import { useMemo, useState } from 'react';
 import FloorPlan from './FloorPlan.tsx';

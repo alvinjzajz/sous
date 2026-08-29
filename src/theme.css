@@ -1,4 +1,4 @@
-/* Mise palette + shell (MISE_PLAN.md §6.1, styled to match ../Mise.dc.html).
+/* Mise palette + shell (MISE_PLAN.md §6.1, styled to match "../Mise Restaurant Manager.html").
    Two registers on one screen: the floor is pixel-art, the chrome around it is clean. */
 
 /* Self-hosted, not the Google Fonts CDN, because §12.2 commits to default-src 'self'.
@@ -46,6 +46,14 @@
   --edge: #2e1b12;
   --wood: #c79a62;
   --wood-dk: #bc8d55;
+  /* The floor is darker than the tabletops — that value gap is what makes tables
+     read without needing a heavy tint on them. Mockup: floorboards vs WOOD. */
+  --floor-1: #aa7a4c;
+  --floor-2: #a3734a;
+  --floor-3: #9c6c44;
+  --seam: #342114;
+  --chair: #8c5b3a;
+  --chair-back: #4a2c1b;
   --counter: #33604f;
   --counter-dk: #1d3a30;
   --select: #f0e2c6;

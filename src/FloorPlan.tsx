@@ -1,4 +1,4 @@
-// The pixel-art floor (MISE_PLAN.md §6.1), styled to match ../Mise.dc.html.
+// The pixel-art floor (MISE_PLAN.md §6.1), styled to match "../Mise Restaurant Manager.html".
 //
 // Inline SVG, not absolutely-positioned divs like the mockup: every table is a real
 // focusable node, so click handling, focus rings, keyboard nav and screen-reader
@@ -8,7 +8,7 @@
 //
 // The viewBox is measured in CELLS (1 cell = 0.125 m), so one cell is one pixel-art
 // pixel. Every coordinate below must stay an integer.
-import type { FloorPlan as Plan, Party, Station, Table, Wall } from './types.ts';
+import type { FloorPlan as Plan, Party, Table, Wall } from './types.ts';
 
 /** Wall thickness, in cells. */
 const WALL = 2;
@@ -87,10 +87,6 @@ function PixelText({
   );
 }
 
-/** Cook stations read as back-of-house steel-green; the bar reads as wood. */
-const stationFill = (s: Station) => (s.type === 'bar' ? 'url(#plank)' : 'var(--counter)');
-const stationEdge = (s: Station) => (s.type === 'bar' ? 'var(--edge)' : 'var(--counter-dk)');
-
 interface Props {
   plan: Plan;
   parties: Party[];
@@ -106,13 +102,16 @@ export default function FloorPlan({ plan, parties, selectedId, onSelect }: Props
   return (
     <svg className="floor" viewBox={`0 0 ${bounds.w} ${bounds.h}`} aria-label="Restaurant floor plan">
       <defs>
-        {/* Floorboards: planks running the width of the room, seamed every 8 cells. */}
-        <pattern id="floorboards" width={bounds.w} height="8" patternUnits="userSpaceOnUse">
-          <rect width={bounds.w} height="8" fill="var(--wood)" />
-          <rect y="7" width={bounds.w} height="1" fill="var(--wood-dk)" />
-          <rect x="0" width="1" height="7" fill="var(--wood-dk)" opacity="0.5" />
-          <rect x={Math.round(bounds.w / 3)} width="1" height="7" fill="var(--wood-dk)" opacity="0.5" />
-          <rect x={Math.round((bounds.w * 2) / 3)} width="1" height="7" fill="var(--wood-dk)" opacity="0.5" />
+        {/* Floorboards: planks running top-to-bottom in three tones, butt-jointed
+            every 8 cells, with a nail head per board. Mirrors the mockup's layered
+            gradient — three plank widths, seams on both axes, dots on a grid. */}
+        <pattern id="floorboards" width="8" height="8" patternUnits="userSpaceOnUse">
+          <rect width="8" height="8" fill="var(--floor-1)" />
+          <rect x="3" width="3" height="8" fill="var(--floor-2)" />
+          <rect x="6" width="2" height="8" fill="var(--floor-3)" />
+          <rect y="7" width="8" height="1" fill="var(--seam)" opacity="0.2" />
+          <rect x="7" width="1" height="7" fill="var(--seam)" opacity="0.14" />
+          <rect x="1" y="3" width="1" height="1" fill="var(--seam)" opacity="0.26" />
         </pattern>
         {/* Tabletops get a tighter plank so they read as a separate object. */}
         <pattern id="plank" width="4" height="4" patternUnits="userSpaceOnUse">
@@ -125,23 +124,19 @@ export default function FloorPlan({ plan, parties, selectedId, onSelect }: Props
           <rect width="4" height="4" fill="#8e7c63" />
           <rect x="4" y="4" width="4" height="4" fill="#8e7c63" />
         </pattern>
-        {/* The 0.5 m snap grid, one rect instead of ~900 dots. */}
-        <pattern id="snap" width={plan.gridSize} height={plan.gridSize} patternUnits="userSpaceOnUse">
-          <rect width="1" height="1" fill="var(--select)" opacity="0.25" />
-        </pattern>
       </defs>
 
       <rect width={bounds.w} height={bounds.h} fill="url(#tile)" />
-      {['url(#floorboards)', 'url(#snap)'].map((fill) => (
-        <rect
-          key={fill}
-          x={WALL}
-          y={FLOOR_TOP}
-          width={bounds.w - WALL * 2}
-          height={bounds.h - FLOOR_TOP - WALL}
-          fill={fill}
-        />
-      ))}
+      {/* ponytail: no 0.5 m snap-grid overlay — it fights the floor's own nail-head
+          grid and nothing snaps until add_table lands. Re-add it on day 3, gated on
+          design mode, as the mockup does. */}
+      <rect
+        x={WALL}
+        y={FLOOR_TOP}
+        width={bounds.w - WALL * 2}
+        height={bounds.h - FLOOR_TOP - WALL}
+        fill="url(#floorboards)"
+      />
 
       {plan.walls.map((w) => (
         <rect key={w.id} {...wallRect(w, bounds)} fill={WALL_FILL[w.kind]} />
@@ -152,7 +147,7 @@ export default function FloorPlan({ plan, parties, selectedId, onSelect }: Props
         const y = s.y - s.h / 2;
         return (
           <g key={s.id}>
-            <polygon points={notched(x, y, s.w, s.h)} fill={stationFill(s)} stroke={stationEdge(s)} strokeWidth="1" />
+            <polygon points={notched(x, y, s.w, s.h)} fill="var(--counter)" stroke="var(--counter-dk)" strokeWidth="1" />
             <rect x={x + 1} y={y + 1} width={s.w - 2} height="1" fill="var(--select)" opacity="0.18" />
             <rect x={x + 1} y={y + s.h - 2} width={s.w - 2} height="1" fill="#0c1a14" opacity="0.4" />
             <PixelText x={s.x} y={s.y} size={4} fill="var(--select)" shadow="rgba(12,26,20,.55)">
@@ -211,15 +206,15 @@ export default function FloorPlan({ plan, parties, selectedId, onSelect }: Props
                 y={cy - CHAIR / 2}
                 width={CHAIR}
                 height={CHAIR}
-                fill="var(--wood)"
-                stroke="var(--edge)"
+                fill="var(--chair)"
+                stroke="var(--chair-back)"
                 strokeWidth="1"
               />
             ))}
 
             {footprint({ fill: 'url(#plank)', stroke: 'var(--edge)', strokeWidth: 1 })}
             {/* Section identity tints the top, the way the mockup tints by status. */}
-            {footprint({ fill: `var(${section?.color ?? '--panel'})`, opacity: 0.62 })}
+            {footprint({ fill: `var(${section?.color ?? '--panel'})`, opacity: 0.34 })}
 
             {/* Bevel: every object in the mockup is lit from above. */}
             {round ? (
@@ -253,9 +248,12 @@ export default function FloorPlan({ plan, parties, selectedId, onSelect }: Props
 
             {/* Silkscreen advances ~0.6em, so a 3-char name needs ~1.8x the font size
                 in cells. Drop a size on the 2-tops rather than let it spill. */}
-            <PixelText x={t.x} y={t.y} size={t.w >= 8 ? 4 : 3} fill="var(--select)" shadow="rgba(24,14,8,.65)">
+            <PixelText x={t.x} y={t.y - 2} size={t.w >= 8 ? 4 : 3} fill="var(--select)" shadow="rgba(24,14,8,.65)">
               {t.name}
             </PixelText>
+            <text x={t.x} y={t.y + 3} fontSize="3" fill="var(--select)" opacity="0.78">
+              {party ? `${t.seats}·${section?.name.charAt(0) ?? ''}` : String(t.seats)}
+            </text>
 
             <rect
               className="halo"
