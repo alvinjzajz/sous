@@ -8,7 +8,7 @@
 //
 // The viewBox is measured in CELLS (1 cell = 0.125 m), so one cell is one pixel-art
 // pixel. Every coordinate below must stay an integer.
-import type { FloorPlan as Plan, Party, Table, Wall } from './types.ts';
+import type { Conflict, FloorPlan as Plan, Party, Table, Wall } from './types.ts';
 
 /** Wall thickness, in cells. */
 const WALL = 2;
@@ -66,6 +66,23 @@ function chairs(t: Table): [number, number][] {
   return out;
 }
 
+/**
+ * Guests sitting at ONE of the tables a party holds. A combination fills its primary
+ * first and spills the rest onto the joined tables, so the room never draws more
+ * guests than there are chairs.
+ */
+function guestsAt(p: Party | undefined, tableId: string, seatsOf: (id: string) => number): number {
+  if (!p) return 0;
+  let left = p.size;
+  for (const id of [p.tableId, ...p.joinedIds]) {
+    if (!id) continue;
+    const here = Math.min(left, seatsOf(id));
+    if (id === tableId) return here;
+    left -= here;
+  }
+  return 0;
+}
+
 /** A rect with pixel-notched corners, the mockup's PIX_SQ clip-path as a polygon. */
 function notched(x: number, y: number, w: number, h: number, n = NOTCH) {
   return [
@@ -96,16 +113,29 @@ interface Props {
   cooking?: Record<string, number>;
   /** Items fired and waiting for a slot at each station type. */
   queued?: Record<string, number>;
+  /** From computeConflicts. Anything targeting a table or station gets marked. */
+  conflicts?: Conflict[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }
 
 export default function FloorPlan({
-  plan, parties, cooking = {}, queued = {}, selectedId, onSelect,
+  plan, parties, cooking = {}, queued = {}, conflicts = [], selectedId, onSelect,
 }: Props) {
   const { bounds } = plan;
   const sectionOf = new Map(plan.sections.flatMap((s) => s.tableIds.map((id) => [id, s] as const)));
-  const partyAt = new Map(parties.filter((p) => p.tableId).map((p) => [p.tableId!, p]));
+  // A combination shows the same party on every table it holds.
+  const partyAt = new Map<string, Party>();
+  for (const p of parties) {
+    if (!p.tableId) continue;
+    for (const id of [p.tableId, ...p.joinedIds]) partyAt.set(id, p);
+  }
+  const seatsOf = (id: string) => plan.tables.find((t) => t.id === id)?.seats ?? 0;
+  /** Worst severity flagged against each id. An error outranks a warning. */
+  const flagged = new Map<string, Conflict['severity']>();
+  for (const c of conflicts) {
+    if (c.severity === 'error' || !flagged.has(c.targetId)) flagged.set(c.targetId, c.severity);
+  }
 
   return (
     <svg className="floor" viewBox={`0 0 ${bounds.w} ${bounds.h}`} aria-label="Restaurant floor plan">
@@ -207,23 +237,28 @@ export default function FloorPlan({
         const y = t.y - t.h / 2;
         const r = t.w / 2;
         const round = t.shape === 'round';
+        const seated = guestsAt(party, t.id, seatsOf);
+        const held = party ? [party.tableId, ...party.joinedIds].filter(Boolean) : [];
+        const flag = flagged.get(t.id);
         const label = [
           `Table ${t.name}`,
           `seats ${t.seats}`,
           section ? `${section.name} section` : 'no section',
           party ? `seated: ${party.name}, party of ${party.size}` : 'empty',
-          t.pinned ? 'pinned' : null,
+          held.length > 1 ? `pushed together with ${held.filter((id) => id !== t.id).join(' and ')}` : null,
+          t.pinned || party?.pinned ? 'pinned' : null,
+          flag ? `${flag === 'error' ? 'conflict' : 'warning'}` : null,
           `placed by ${t.provenance}`,
         ]
           .filter(Boolean)
           .join(', ');
 
         /** Same footprint, drawn repeatedly: top, section tint, provenance ring. */
-        const footprint = (props: Record<string, string | number>) =>
+        const footprint = (props: Record<string, string | number>, grow = 0) =>
           round ? (
-            <circle cx={t.x} cy={t.y} r={r} {...props} />
+            <circle cx={t.x} cy={t.y} r={r + grow} {...props} />
           ) : (
-            <polygon points={notched(x, y, t.w, t.h)} {...props} />
+            <polygon points={notched(x - grow, y - grow, t.w + grow * 2, t.h + grow * 2)} {...props} />
           );
 
         return (
@@ -251,7 +286,7 @@ export default function FloorPlan({
                 y={cy - CHAIR / 2}
                 width={CHAIR}
                 height={CHAIR}
-                fill={i < (party?.size ?? 0) ? 'var(--select)' : 'var(--chair)'}
+                fill={i < seated ? 'var(--select)' : 'var(--chair)'}
                 stroke="var(--chair-back)"
                 strokeWidth="1"
               />
@@ -300,6 +335,37 @@ export default function FloorPlan({
             <text x={t.x} y={t.y + 3} fontSize="3" fill="var(--select)" opacity="0.78">
               {party ? `${t.seats}·${section?.name.charAt(0) ?? ''}` : String(t.seats)}
             </text>
+
+            {/* A conflict wears an inner ring in its own severity colour. Amber warns,
+                alert is an error — the same two values the conflicts strip uses. */}
+            {flag &&
+              footprint(
+                { fill: 'none', stroke: flag === 'error' ? 'var(--alert)' : 'var(--amber)', strokeWidth: 1 },
+                round ? -1 : -2, // clear of the bevel on a rect, off the label on a round
+              )}
+
+            {/* Pinned: a pushpin on the tabletop. Shape, not colour, so it survives
+                greyscale and a compressed video frame — this is the 2:40 beat (§9). */}
+            {(t.pinned || party?.pinned) &&
+              (() => {
+                // Top-left of the footprint box: on the tabletop for a rect, and on the
+                // free NW diagonal for a round, where no chair ever sits.
+                const [px, py] = round ? [x, y] : [x + 2, y + 2];
+                return (
+                  <g>
+                    <rect x={px} y={py + 3} width="1" height="2" fill="#1e120a" />
+                    <rect
+                      x={px - 1}
+                      y={py}
+                      width="3"
+                      height="3"
+                      fill="var(--select)"
+                      stroke="#1e120a"
+                      strokeWidth="1"
+                    />
+                  </g>
+                );
+              })()}
 
             <rect
               className="halo"

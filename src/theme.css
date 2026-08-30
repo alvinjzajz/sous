@@ -381,3 +381,45 @@ button { font-family: inherit; }
   border-color: var(--sage-dk);
   color: var(--sage-dk);
 }
+
+/* Conflicts, actions and the one-line result — the mutation path made visible ---- */
+
+.alarms { margin-left: auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.alarms .hint {
+  margin-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46ch;
+}
+.chip {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-family: var(--pixel);
+  font-size: 8.5px;
+  letter-spacing: 0.5px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.chip:hover { background: var(--hover); }
+/* §6.1: warn is an amber FILL under ink; error is --alert, which is a text colour. */
+.chip--warn { background: var(--amber); border-color: var(--clay); color: var(--ink); }
+.chip--error { border-color: var(--alert); color: var(--alert); font-weight: 600; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.actions .tbtn { flex: 1 1 auto; }
+
+.said {
+  margin: 11px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-mute);
+}
+.said--no { color: var(--alert); }
+
+.issues { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.issues li { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; }
+.issues em { color: var(--ink-mute); font-style: normal; }

@@ -133,10 +133,26 @@ export function stationLoad(
 
 /** Tables with nobody sitting at them right now. */
 export function freeTables(s: SousState): Table[] {
-  const taken = new Set(
-    s.parties.filter((p) => p.course !== 'departed' && p.tableId).map((p) => p.tableId),
-  );
+  const taken = new Set(tablesHeld(s).keys());
   return s.plan.tables.filter((t) => !taken.has(t.id));
+}
+
+/** Every table a live party holds -> that party. Combined tables map to the same one. */
+export function tablesHeld(s: SousState): Map<string, Party> {
+  const held = new Map<string, Party>();
+  for (const p of s.parties) {
+    if (p.course === 'departed' || !p.tableId) continue;
+    held.set(p.tableId, p);
+    for (const id of p.joinedIds) held.set(id, p);
+  }
+  return held;
+}
+
+/** Seats a party actually has under it, counting any tables pushed together. */
+export function seatsUnder(s: SousState, p: Party): number {
+  return [p.tableId, ...p.joinedIds]
+    .map((id) => s.plan.tables.find((t) => t.id === id)?.seats ?? 0)
+    .reduce((a, b) => a + b, 0);
 }
 
 /** Covers currently seated in each section, for load balancing. */
@@ -173,11 +189,7 @@ export function pickTable(s: SousState, size: number): Table | null {
 /** Minutes a party of `size` should be quoted, from free tables and projected departures. */
 export function quoteWait(s: SousState, size: number): number {
   if (pickTable(s, size)) return 0;
-  const seated = new Map(
-    s.parties
-      .filter((p) => p.course !== 'departed' && p.tableId)
-      .map((p) => [p.tableId as string, p]),
-  );
+  const seated = tablesHeld(s);
   // ponytail: remaining time is a flat per-stage constant (REMAINING), not a projection
   // off the party's own in-flight tickets. Upgrade is to use ticketServedAt of the
   // current course where one exists — same function, one extra branch.
@@ -197,12 +209,14 @@ export function quoteWait(s: SousState, size: number): number {
 /**
  * What a party orders for one course. Deterministic on (seed, party, course).
  *
- * ponytail: orders are composed, never entered. Ceiling — nobody, human or agent, can
- * tell Sous what a table actually asked for; `swap_ticket_item` editing a line after the
- * fact is the only way in. The upgrade is now scheduled, not deferred: an optional `items`
- * argument here that falls back to this function, exposed by `fire_course` on day 5, with
- * the human-side menu picker conditional on day 4 (SOUS_PLAN.md §8). Delete this comment
- * when `items` lands.
+ * This is the fallback, not the only way in: `fireTicket(..., items)` takes real order
+ * lines and `fireCourse` validates them, so the agent can ring in what a table actually
+ * asked for (SOUS_PLAN.md §8, day 5 exposes it as `fire_course`'s optional `items`).
+ *
+ * ponytail: the composed order is still what the *simulation* rings in for every course
+ * nobody fired by hand. Ceiling — a human has no menu picker, so the human half of order
+ * entry is still agent-only. Upgrade is the day-4 conditional pane in SOUS_PLAN.md §8;
+ * the engine side is already done.
  */
 export function compose(s: SousState, party: Party, course: MenuCourse): TicketItem[] {
   const rng = mulberry32(s.shift.seed ^ hash(`${party.id}:${course}`));
@@ -221,14 +235,17 @@ export function compose(s: SousState, party: Party, course: MenuCourse): TicketI
   }));
 }
 
-/** Ring in a course for a party. Returns null when nobody at the table ordered it. */
+/**
+ * Ring in a course for a party. Returns null when nobody at the table ordered it.
+ * `items` is what the table actually asked for; omitted, the simulation composes it.
+ */
 export function fireTicket(
   s: SousState,
   party: Party,
   course: MenuCourse,
   provenance: Ticket['provenance'] = 'human',
+  items: TicketItem[] = compose(s, party, course),
 ): Ticket | null {
-  const items = compose(s, party, course);
   if (!items.length) return null;
   const menu = byId(s.menu);
   const cook = Math.max(...items.map((i) => menu.get(i.menuItemId)?.cookMinutes ?? 0));
@@ -247,7 +264,10 @@ export function fireTicket(
 export function seatAt(
   s: SousState,
   table: Table,
-  init: { id: string; name: string; size: number; notes?: string; provenance?: Party['provenance'] },
+  init: {
+    id: string; name: string; size: number; notes?: string;
+    joinedIds?: string[]; provenance?: Party['provenance'];
+  },
 ): Party {
   const notes = init.notes ?? '';
   const lower = notes.toLowerCase();
@@ -256,6 +276,7 @@ export function seatAt(
     name: init.name,
     size: init.size,
     tableId: table.id,
+    joinedIds: init.joinedIds ?? [],
     seatedAt: s.shift.clock,
     course: 'seated',
     courseAt: s.shift.clock,
@@ -396,9 +417,12 @@ function advance(s: SousState, p: Party, to: CourseStage): void {
   p.courseAt = s.shift.clock;
   if (to === 'departed') {
     p.tableId = null;
+    p.joinedIds = [];
     return;
   }
   if (to === 'check') return;
+  // Cooperative, not authoritative: if a tool already rang this course in, leave it alone.
+  if (s.tickets.some((t) => t.partyId === p.id && t.course === to)) return;
   const ticket = fireTicket(s, p, to as MenuCourse);
   if (ticket) s.tickets.push(ticket);
   else advance(s, p, NEXT[to]); // nobody ordered it, so there is nothing to wait for

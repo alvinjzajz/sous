@@ -71,6 +71,12 @@ export interface Party {
   name: string;
   size: number;
   tableId: string | null;
+  /**
+   * Tables pushed together for this party. `tableId` is the primary — every single-table
+   * consumer reads that alone — and these are the rest. The house never combines tables;
+   * only a human or the agent does (SOUS_PLAN.md §9, 1:35).
+   */
+  joinedIds: string[];
   /** Shift-minute stamp. Elapsed time is DERIVED against the clock, never stored (§2). */
   seatedAt: number;
   course: CourseStage;
