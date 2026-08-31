@@ -230,16 +230,11 @@ function serviceConflicts(s: SousState): Conflict[] {
     });
   }
 
-  for (const w of s.waitlist) {
-    const waited = clock - w.addedAt;
-    if (waited > w.quotedMinutes) {
-      out.push({
-        type: 'quote-blown', severity: 'warn', targetId: w.id,
-        message: `${w.name} (${w.size}) was quoted ${w.quotedMinutes} minutes and has waited ${waited}.`,
-        suggestion: 'Seat them or re-quote before they walk.',
-      });
-    }
-  }
+  // NO `quote-blown` RULE. A blown quote is not a fault in the board, it is just the
+  // state of the door, and every busy night raises one — it drowned the strip in noise
+  // that no edit could clear. The waitlist itself carries it now: each entry shows the
+  // wait against its quote and marks the ones running over, in the left rail and in the
+  // pane of any empty table (SOUS_PLAN.md §1). Information, not an alarm.
 
   return out;
 }

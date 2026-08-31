@@ -645,3 +645,67 @@ button { font-family: inherit; }
 .confirm .hint { display: block; margin-bottom: 16px; line-height: 1.5; }
 .confirm .actions { justify-content: flex-end; }
 .confirm .actions .tbtn { flex: 0 0 auto; padding: 8px 16px; }
+
+/* The waitlist: the door, where a person can act on it ---------------------- */
+
+.waits { display: flex; flex-direction: column; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.waits li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1.5px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--paper);
+}
+.waits li > div { min-width: 0; }
+.waits strong { display: block; font-size: 12.5px; font-weight: 600; }
+.waits span { display: block; margin-top: 3px; font-size: 10.5px; color: var(--ink-mute); }
+/* Over the quote. The wait is now a fact ON the party, not a conflict on the strip. */
+.waits .wait--over { border-left-color: var(--alert); }
+.wait--over span { color: var(--alert); }
+
+.tbtn--seat {
+  flex: none;
+  margin-left: auto;
+  background: var(--sage);
+  border-color: var(--sage-dk);
+  color: var(--select);
+}
+.tbtn--seat:hover:not(:disabled) { background: var(--sage-dk); }
+
+.bookingCard {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+.bookingCard > div { min-width: 0; }
+.bookingCard strong { display: block; font-size: 13px; font-weight: 600; }
+.bookingCard span { display: block; margin-top: 3px; font-size: 11px; color: var(--ink-mute); }
+
+/* The Waitlist nav row opens in place. */
+.navOpen { display: block; padding: 0; }
+.navOpen details { width: 100%; }
+.navOpen summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 4px;
+  cursor: pointer;
+  list-style: none;
+}
+.navOpen summary::-webkit-details-marker { display: none; }
+.navOpen summary::after { content: '▸'; font-size: 9px; color: var(--ink-faint); }
+.navOpen details[open] summary::after { content: '▾'; }
+.navOpen summary:hover { color: var(--ink); }
+.navOpen summary b { font-family: var(--pixel); font-size: 9px; font-weight: 400; color: var(--ink-faint); }
+.navOpen summary span { margin-right: auto; }
+.navOpen .waits { margin: 2px 0 10px; }
+.navOpen .waits li { padding: 7px 9px; }
+.navOpen .hint { display: block; padding: 0 4px 10px; }

@@ -105,9 +105,6 @@ fires('a booking left standing', (s) => {
   r.status = 'arrived';
   r.time = s.shift.clock - 30;
 }, 'reservation-waiting');
-fires('a quote that blew', (s) => {
-  s.waitlist.push({ id: 'w-test', name: 'Bergstrom', size: 2, addedAt: s.shift.clock - 40, quotedMinutes: 10 });
-}, 'quote-blown');
 {
   const s = peak();
   const sage = s.plan.sections[0];

@@ -21,7 +21,9 @@ import type { Reshape, Result } from './mutations.ts';
 import { pickTable } from './sim.ts';
 import type { Sous } from './store.ts';
 import { CELL_M, fmtClock } from './types.ts';
-import type { Conflict, MenuCourse, Section, SousState, Station, Table } from './types.ts';
+import type {
+  Conflict, MenuCourse, Section, SousState, Station, Table, WaitEntry,
+} from './types.ts';
 
 export interface PaneProps {
   sous: Sous;
@@ -125,13 +127,59 @@ function bumpSeats(d: SousState, tableId: string, by: number) {
   return updateTable(d, { tableId, seats: t.seats + by }, 'human');
 }
 
-/** Whoever the host stand would seat next: the earliest booking, then the door. */
-function nextWaiting(s: SousState) {
-  const r = s.reservations.filter((x) => x.status !== 'seated' && x.status !== 'no-show')
-    .sort((a, b) => a.time - b.time)[0];
-  if (r) return { ref: { reservationId: r.id }, label: `${r.name} (${r.size})` };
-  const w = s.waitlist[0];
-  return w ? { ref: { waitId: w.id }, label: `${w.name} (${w.size})` } : null;
+/**
+ * The next booking still to be sat that FITS THIS TABLE — the mockup's "NEXT ON THIS
+ * TABLE". Filtered by capacity because the pane is about one table: offering a six-top
+ * the next four-top on the book is just a disabled button and a question. The whole
+ * book, capacity or not, is the host stand's pane.
+ */
+function nextBooking(s: SousState, seats: number) {
+  return s.reservations
+    .filter((r) => r.status !== 'seated' && r.status !== 'no-show' && r.size <= seats)
+    .sort((a, b) => a.time - b.time)[0] ?? null;
+}
+
+/**
+ * The people at the door.
+ *
+ * This replaced the `quote-blown` conflict rule. A blown quote is not a fault in the
+ * board — it is just the state of the door, it fires on every busy night, and no edit
+ * could ever clear it, so it only ever drowned the strip. The wait against the quote
+ * belongs on the party it describes, where somebody can act on it.
+ */
+export function WaitRows({
+  entries, clock, seat, brief = false,
+}: {
+  entries: WaitEntry[];
+  clock: number;
+  /** Omitted in the left rail, where there is no table to seat anybody at. */
+  seat?: (w: WaitEntry) => { onClick: () => void; disabled: boolean; title: string };
+  /** The 186px left rail: the wait, without the quote it is measured against. */
+  brief?: boolean;
+}) {
+  if (!entries.length) return <p className="hint">Nobody at the door.</p>;
+  return (
+    <ul className="waits">
+      {entries.map((w) => {
+        const waited = clock - w.addedAt;
+        const over = waited > w.quotedMinutes;
+        const action = seat?.(w);
+        return (
+          <li key={w.id} className={over ? 'wait--over' : undefined}>
+            <div>
+              <strong>{w.name} · {w.size}</strong>
+              <span>
+                {brief
+                  ? `waiting ${waited}m${over ? ` · ${waited - w.quotedMinutes}m over` : ''}`
+                  : `waiting ${waited}m · quoted ${w.quotedMinutes}m${over ? ` · ${waited - w.quotedMinutes}m over` : ''}`}
+              </span>
+            </div>
+            {action && <button className="tbtn tbtn--seat" {...action}>Seat</button>}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 // --- 1. A table --------------------------------------------------------------
@@ -143,7 +191,9 @@ export function TablePane({ sous, act, select, table }: PaneProps & { table: Tab
   const section = plan.sections.find((s) => s.tableIds.includes(table.id));
   const design = shift.mode === 'design';
   const pinned = table.pinned || !!party?.pinned;
-  const waiting = nextWaiting(sous.state);
+  const booking = nextBooking(sous.state, table.seats);
+  const seatHere = (ref: { reservationId?: string; waitId?: string }) =>
+    act((d) => seatParty(d, { ...ref, tableIds: [table.id] }, 'human'));
   const mine = party ? tickets.filter((t) => t.partyId === party.id) : [];
   const nextCourse = party ? COURSES.find((c) => !mine.some((t) => t.course === c)) : undefined;
   const named = (id: string) => plan.tables.find((t) => t.id === id)?.name ?? id;
@@ -309,12 +359,52 @@ export function TablePane({ sous, act, select, table }: PaneProps & { table: Tab
               )}
             </>
           ) : (
-            <p className="said">
-              Open.{' '}
-              {waiting ? `${waiting.label} is next at the door.` : 'Nobody is waiting.'}
-            </p>
+            <p className="said">Open. Nobody is sitting here.</p>
           )}
         </div>
+      )}
+
+      {/* An empty table in service is a question — WHO GOES HERE — so the pane answers
+          it with the two lists a host actually reads (the mockup's "NEXT ON THIS TABLE"
+          and "SEAT FROM WAITLIST"), instead of one button that picked for you. */}
+      {!design && !party && (
+        <>
+          <div className="block">
+            <span className="eyebrow">NEXT ON THIS TABLE</span>
+            {booking ? (
+              <div className="bookingCard">
+                <div>
+                  <strong>{booking.name} · {booking.size}</strong>
+                  <span>{fmtClock(booking.time)}{booking.notes ? ` · ${booking.notes}` : ''}</span>
+                </div>
+                <button
+                  className="tbtn tbtn--seat"
+                  title={`Seat ${booking.name} at ${table.name}`}
+                  onClick={() => seatHere({ reservationId: booking.id })}
+                >
+                  Seat
+                </button>
+              </div>
+            ) : (
+              <p className="hint">Nothing left in the book that fits {table.seats} seats.</p>
+            )}
+          </div>
+
+          <div className="block">
+            <span className="eyebrow">SEAT FROM WAITLIST</span>
+            <WaitRows
+              entries={sous.state.waitlist}
+              clock={shift.clock}
+              seat={(w) => ({
+                disabled: w.size > table.seats,
+                title: w.size > table.seats
+                  ? `${table.name} seats ${table.seats}; ${w.name} is ${w.size}.`
+                  : `Seat ${w.name} at ${table.name}`,
+                onClick: () => seatHere({ waitId: w.id }),
+              })}
+            />
+          </div>
+        </>
       )}
 
       {!design && party && (
@@ -359,16 +449,6 @@ export function TablePane({ sous, act, select, table }: PaneProps & { table: Tab
           </button>
           {!design && (
             <>
-              <button
-                className="tbtn"
-                disabled={!waiting || !!party}
-                title={waiting ? `Seat ${waiting.label}` : 'Nobody is waiting'}
-                onClick={() =>
-                  waiting && act((d) => seatParty(d, { ...waiting.ref, tableIds: [table.id] }, 'human'))
-                }
-              >
-                Seat {waiting ? waiting.label : 'next'}
-              </button>
               <button
                 className="tbtn"
                 disabled={!party || !nextCourse}

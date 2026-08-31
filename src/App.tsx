@@ -11,7 +11,9 @@
 import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import FloorPlan, { HOST_ID } from './FloorPlan.tsx';
-import { FloorPane, HostPane, SectionPane, StationPane, TablePane, TicketPane } from './Panes.tsx';
+import {
+  FloorPane, HostPane, SectionPane, StationPane, TablePane, TicketPane, WaitRows,
+} from './Panes.tsx';
 import { updateTable } from './mutations.ts';
 import type { Result } from './mutations.ts';
 import { serviceOver, stationLoad } from './sim.ts';
@@ -108,18 +110,22 @@ export default function App() {
           </div>
 
           <ul className="nav">
-            {[
-              ['Tables', plan.tables.length],
-              ['Reservations', reservations.length],
-              ['Waitlist', waitlist.length],
-              ['Service notes', notes.length],
-              ['Menu', menu.length],
-            ].map(([name, count]) => (
-              <li key={name}>
-                <span>{name}</span>
-                <b>{count}</b>
-              </li>
-            ))}
+            <li><span>Tables</span><b>{plan.tables.length}</b></li>
+            <li><span>Reservations</span><b>{reservations.length}</b></li>
+            {/* The door, on the manager's side of the screen. This is what replaced the
+                `quote-blown` conflict: the wait against the quote sits on the party it
+                describes rather than shouting from the conflicts strip. */}
+            <li className="navOpen">
+              <details>
+                <summary>
+                  <span>Waitlist</span>
+                  <b>{waitlist.length}</b>
+                </summary>
+                <WaitRows entries={waitlist} clock={shift.clock} brief />
+              </details>
+            </li>
+            <li><span>Service notes</span><b>{notes.length}</b></li>
+            <li><span>Menu</span><b>{menu.length}</b></li>
           </ul>
 
           <div className="tonight">
