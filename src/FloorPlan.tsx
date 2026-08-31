@@ -273,12 +273,9 @@ export default function FloorPlan({
       {/* One scale, applied once. Every coordinate below is still in CELLS. */}
       <g transform={`scale(${PX})`}>
       <rect width={bounds.w} height={bounds.h} fill="url(#tile)" />
-      {/* ponytail: no 0.5 m snap-grid overlay — it fights the floor's own nail-head
-          grid. `addTable` snaps to plan.gridSize as of day 3, so the overlay would now
-          say something true; it is still not drawn because nothing in the UI places a
-          table by hand yet. Ceiling — design mode reads as unfinished the moment it gets
-          controls. Add it with them (SOUS_PLAN.md §8, conditional day 4), gated on
-          design mode, as the mockup does. */}
+      {/* No 0.5 m snap-grid overlay, and now there is nothing for one to say: a DRAG is
+          free to the cell, so the only grid it could draw would be a lie. `findSpot`
+          still works on plan.gridSize, but that is automatic placement, not the hand. */}
       <rect
         x={WALL}
         y={FLOOR_TOP}
@@ -448,9 +445,15 @@ export default function FloorPlan({
               if (drag?.id !== t.id) return;
               const c = toCell(e);
               if (!c) return;
-              const snap = (v: number) => Math.round(v / plan.gridSize) * plan.gridSize;
+              // A DRAG IS FREE TO THE CELL, not snapped to plan.gridSize. The 0.5 m
+              // snap is right for automatic placement (findSpot, add_table by anchor)
+              // but wrong under a hand: 9 of the 16 seeded tables do not sit on that
+              // grid, so a dragged table could never line up with its neighbours.
+              // One cell (125 mm) is as fine as it goes — geometry is integer cells
+              // (CLAUDE.md #1), and updateTable rounds again on the way in regardless.
+              const snap = Math.round;
               // Clamp to the DINING floor, not the whole canvas: the kitchen is not a
-              // place to put a four-top. Geometry stays integer cells (CLAUDE.md #1).
+              // place to put a four-top.
               const nx = clamp(snap(c.x + drag.dx), WALL + t.w / 2, bounds.w - WALL - t.w / 2);
               const ny = clamp(snap(c.y + drag.dy), FLOOR_TOP + t.h / 2, bounds.h - WALL - t.h / 2);
               if (nx !== drag.x || ny !== drag.y) setDrag({ ...drag, x: nx, y: ny, moved: true });
