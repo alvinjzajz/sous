@@ -87,10 +87,34 @@ const designOnly = (s: SousState) =>
 /** The party sitting at a table, counting tables pushed together. */
 const partyAt = (s: SousState, tableId: string) => tablesHeld(s).get(tableId) ?? null;
 
+/**
+ * Resolve a table from whatever handle the caller had — an id or a name, because a tool
+ * is told both by get_floorplan and a person only ever says the name.
+ *
+ * IDS ARE TRIED FIRST, and the order matters. A rename leaves the old id behind, so
+ * after T1 becomes "Window" and another table takes the name "T1" the string is
+ * genuinely ambiguous. Ids are unique by construction and names are user-typed, so the
+ * id wins and the resolution stays deterministic.
+ */
 function findTable(s: SousState, id: string): Table | null {
   const key = id.trim().toLowerCase();
-  return s.plan.tables.find((t) => t.id.toLowerCase() === key || t.name.toLowerCase() === key) ?? null;
+  return s.plan.tables.find((t) => t.id.toLowerCase() === key)
+    ?? s.plan.tables.find((t) => t.name.toLowerCase() === key)
+    ?? null;
 }
+
+/**
+ * Name uniqueness is about NAMES ONLY, which is why this is not findTable.
+ *
+ * Every seeded table has id === name, so asking findTable "is this name taken?" matched
+ * the renamed table's leftover ID and kept its old name reserved for ever — you could
+ * rename T1 to "Window" and still never call anything else T1. It also broke automatic
+ * naming, since nextTableName would correctly offer a freed name that this then refused.
+ */
+const findByName = (s: SousState, name: string): Table | null => {
+  const key = name.trim().toLowerCase();
+  return s.plan.tables.find((t) => t.name.toLowerCase() === key) ?? null;
+};
 
 /** Resolve "the party" from whichever handle the caller had — party id or table. */
 function findParty(s: SousState, a: { partyId?: string; tableId?: string }): Party | null {
@@ -312,7 +336,7 @@ export function addTable(
   const shape = a.shape ?? proto.shape;
   const size = shape === 'round' ? { w: proto.w, h: proto.w } : { w: proto.w, h: proto.h };
   const name = (a.name ?? nextTableName(s)).trim().slice(0, 24);
-  if (findTable(s, name)) return no(`There is already a table called ${name}.`);
+  if (findByName(s, name)) return no(`There is already a table called ${name}.`);
 
   const placed = a.x !== undefined && a.y !== undefined;
   // `x`/`y` is an explicit placement and is REFUSED if it does not fit (§4's coordinate
@@ -369,7 +393,7 @@ export function updateTable(
   if (a.name !== undefined) {
     const name = a.name.trim().slice(0, 24);
     if (!name) return no('A table needs a name.');
-    const clash = findTable(s, name);
+    const clash = findByName(s, name);
     if (clash && clash.id !== t.id) return no(`There is already a table called ${name}.`);
     next.name = name;
   }
@@ -502,7 +526,7 @@ export function applyLayoutTemplate(
   const bands = s.plan.sections.length;
   let seated = 0;
   for (const row of rows) {
-    const name = row.name && !findTable(s, row.name) ? row.name : nextTableName(s);
+    const name = row.name && !findByName(s, row.name) ? row.name : nextTableName(s);
     const band = Math.min(bands - 1, Math.floor((row.x / s.plan.bounds.w) * bands));
     const table: Table = {
       id: `t-${a.template}-${s.plan.tables.length}`,

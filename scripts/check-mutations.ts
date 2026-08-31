@@ -346,6 +346,40 @@ function occupiedTable(s: SousState): string {
   );
 }
 
+// --- renaming frees the old name ----------------------------------------------
+
+{
+  // Reported bug: rename a table, then try to give another table the old name, and it
+  // was refused as already taken. findTable matches ids AS WELL AS names, which is right
+  // for a lookup and wrong for a uniqueness test, and every seeded table has id === name
+  // - so the renamed table's leftover id kept its old name reserved for ever.
+  const s = seedState();
+  must(updateTable(s, { tableId: 'T1', name: 'Window' }, 'human'), 'renaming T1 to Window');
+  must(updateTable(s, { tableId: 'T2', name: 'T1' }, 'human'), 'giving another table the freed name');
+  assert.equal(s.plan.tables.find((t) => t.id === 'T2')?.name, 'T1', 'the second rename did not take');
+
+  // The string "T1" is now genuinely ambiguous: one table is NAMED T1, another still has
+  // the ID T1. Ids win, because they are unique by construction and names are user-typed.
+  must(updateTable(s, { tableId: 'T1', seats: 6 }, 'human'), 'addressing T1 by id');
+  assert.equal(s.plan.tables.find((t) => t.id === 'T1')?.seats, 6, 'a name shadowed the id it collides with');
+  assert.notEqual(s.plan.tables.find((t) => t.id === 'T2')?.seats, 6, 'the wrong table was resized');
+
+  // Automatic naming was broken by the same conflation: nextTableName offers a freed
+  // name and the clash check then refused its own suggestion.
+  const added = must(addTable(s, { seats: 2, anchor: 'centre' }, 'human'), 'adding an auto-named table after a rename');
+  assert.ok(added, 'the add returned no table');
+  assert.equal(
+    s.plan.tables.filter((t) => t.name === added.name).length, 1,
+    `the auto-named table duplicated the name ${added.name}`,
+  );
+
+  // A REAL clash still refuses, both ways round.
+  refused(updateTable(s, { tableId: 'T3', name: 'T4' }, 'human'), 'taking a name another table still uses', 'already');
+  refused(addTable(s, { seats: 2, name: 'Window' }, 'human'), 'adding a table under a name in use', 'already');
+  // ...and a table may always be renamed to what it is already called.
+  must(updateTable(s, { tableId: 'T3', name: 'T3' }, 'human'), 'renaming a table to its own name');
+}
+
 // --- placement reports, pinning gates -----------------------------------------
 
 {
