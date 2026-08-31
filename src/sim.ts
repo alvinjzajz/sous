@@ -8,8 +8,8 @@
 // than on a carried cursor, so tick stays pure and the same seed replays the same
 // night. advanceTo(seedState(), 135) always produces the same 7:15 PM room.
 import type {
-  CourseStage, MenuCourse, MenuItem, Party, SousState, Table, Ticket, TicketItem,
-  TicketItemStatus, WaitEntry,
+  CourseStage, MenuCourse, MenuItem, Party, Reservation, SousState, Table, Ticket,
+  TicketItem, TicketItemStatus, WaitEntry,
 } from './types.ts';
 
 // --- Tunables ----------------------------------------------------------------
@@ -36,6 +36,16 @@ const REMAINING: Record<CourseStage, number> = {
  * agent to seat instantly (§9, 1:15) — and why the room still fills without it.
  */
 const hostLag = (size: number) => 4 + size;
+/**
+ * How long a booking is held past its time before the house writes it off.
+ *
+ * Taken as max(this, hostLag) so a party can never be marked a no-show BEFORE the house
+ * has tried to seat them — hostLag is 4 + size, so a large enough party would otherwise
+ * be written off while still in the queue. On the seeded night the worst real delay is
+ * 10 minutes (a six-top), so this changes nothing there; it exists for the nights where
+ * the room is full and somebody has genuinely stopped waiting.
+ */
+const NO_SHOW_AFTER = 15;
 /** Last minute the room takes walk-ins, and the most that may stand at the door. */
 const WALKIN_UNTIL = 255; // 9:15 PM
 const WAITLIST_CAP = 12;
@@ -132,6 +142,19 @@ export function stationLoad(
 }
 
 /** Tables with nobody sitting at them right now. */
+/**
+ * Bookings still to come: not sat, not written off. Earliest first.
+ *
+ * A booking leaves this list the moment it is fulfilled or expires — arrivals() marks a
+ * no-show once it is NO_SHOW_AFTER past its time. A list of tonight's bookings that
+ * still shows the ones already eating is not a list, it is a log.
+ */
+export function openBookings(s: SousState): Reservation[] {
+  return s.reservations
+    .filter((r) => r.status !== 'seated' && r.status !== 'no-show')
+    .sort((a, b) => a.time - b.time);
+}
+
 export function freeTables(s: SousState): Table[] {
   const taken = new Set(tablesHeld(s).keys());
   return s.plan.tables.filter((t) => !taken.has(t.id));
@@ -305,6 +328,15 @@ function arrivals(s: SousState): void {
   const clock = s.shift.clock;
   for (const r of s.reservations) {
     if (r.status === 'expected' && clock >= r.time) r.status = 'arrived';
+    // Written off, not deleted: 'no-show' is what the status enum was always for, and it
+    // is what drops them out of the book without pretending the booking never existed.
+    if (
+      (r.status === 'expected' || r.status === 'arrived') &&
+      clock > r.time + Math.max(NO_SHOW_AFTER, hostLag(r.size))
+    ) {
+      r.status = 'no-show';
+      delete r.tableId; // a table held for somebody who never came is just a held table
+    }
   }
 
   if (clock > WALKIN_UNTIL || s.waitlist.length >= WAITLIST_CAP) return;

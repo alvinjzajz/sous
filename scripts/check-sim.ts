@@ -7,7 +7,9 @@
 // Asserts only; no framework.
 import assert from 'node:assert/strict';
 import { seedState } from '../src/seed.ts';
-import { LAST_SEAT, SERVICE_END, advanceTo, stationLoad, tick, ticketServedAt } from '../src/sim.ts';
+import {
+  LAST_SEAT, SERVICE_END, advanceTo, openBookings, stationLoad, tick, ticketServedAt,
+} from '../src/sim.ts';
 import type { CourseStage, SousState } from '../src/types.ts';
 import { fmtClock } from '../src/types.ts';
 
@@ -186,6 +188,35 @@ assert.deepEqual(before, snapshot, 'tick mutated its argument');
 // inside the sim at all — snapshots are the day-3 mutation path's problem (§2, rule 3).
 assert.equal(a.shift.seed, snapshot.shift.seed, 'the seed drifted');
 assert.equal(a.shift.mode, snapshot.shift.mode, 'the sim changed mode behind our back');
+
+// --- a booking that nobody seats is written off, not left standing all night ---
+{
+  // A room with nowhere to put anyone: every table removed, so the house cannot seat.
+  // The booking should go 'expected' -> 'arrived' -> 'no-show', and drop out of the book.
+  const s2 = seedState();
+  s2.shift.mode = 'service';
+  s2.plan.tables = [];
+  const r0 = [...s2.reservations].sort((a, b) => a.time - b.time)[0];
+  const seen = new Set<string>();
+  let cur = s2;
+  for (let i = 0; i < r0.time + 40; i++) {
+    cur = tick(cur);
+    seen.add(cur.reservations.find((x) => x.id === r0.id)!.status);
+  }
+  const after = cur.reservations.find((x) => x.id === r0.id)!;
+  assert.ok(seen.has('arrived'), 'the booking never arrived');
+  assert.equal(after.status, 'no-show', 'a booking nobody could seat was left standing all night');
+  assert.ok(
+    !openBookings(cur).some((x) => x.id === r0.id),
+    'a written-off booking is still in the book',
+  );
+  // ...and it is not written off before the house has even tried (hostLag).
+  const early = advanceTo({ ...seedState(), shift: { ...seedState().shift, mode: 'service' as const }, plan: { ...seedState().plan, tables: [] } }, r0.time + 10);
+  assert.notEqual(
+    early.reservations.find((x) => x.id === r0.id)!.status, 'no-show',
+    'a booking was written off inside the grace period',
+  );
+}
 
 const byCourse = live.reduce<Record<string, number>>(
   (acc, p) => ({ ...acc, [p.course]: (acc[p.course] ?? 0) + 1 }),

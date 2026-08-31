@@ -17,7 +17,7 @@ import {
 } from './Panes.tsx';
 import { updateTable } from './mutations.ts';
 import type { Result } from './mutations.ts';
-import { serviceOver, stationLoad } from './sim.ts';
+import { openBookings, serviceOver, stationLoad } from './sim.ts';
 import { useSous } from './store.ts';
 import { CELL_M, fmtClock } from './types.ts';
 import type { SousState } from './types.ts';
@@ -39,10 +39,10 @@ export default function App() {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
 
-  const { plan, shift, reservations, waitlist, menu } = state;
+  const { plan, shift, waitlist } = state;
   const mode = shift.mode;
-  // Notes are written during service and surface when their minute comes round (§7).
-  const notes = state.notes.filter((n) => n.createdAt <= shift.clock && n.status === 'open');
+  /** Tonight's book, minus what has been seated or written off (see openBookings). */
+  const book = openBookings(state);
 
   /** The mutation path. Everything a person clicks goes through here. */
   const act = (fn: (draft: SousState) => Result<unknown>) => {
@@ -110,19 +110,16 @@ export default function App() {
             ))}
           </div>
 
+          {/* The two queues, and nothing else. Tables, service notes and the menu all
+              live in the right column already; repeating their counts here was chrome. */}
           <ul className="nav">
-            <li><span>Tables</span><b>{plan.tables.length}</b></li>
             <li className="navOpen">
               <details>
                 <summary>
                   <span>Reservations</span>
-                  <b>{reservations.length}</b>
+                  <b>{book.length}</b>
                 </summary>
-                <BookingRows
-                  entries={[...reservations].sort((a, b) => a.time - b.time)}
-                  clock={shift.clock}
-                  brief
-                />
+                <BookingRows entries={book} clock={shift.clock} brief />
               </details>
             </li>
             {/* The door, on the manager's side of the screen. This is what replaced the
@@ -137,8 +134,6 @@ export default function App() {
                 <WaitRows entries={waitlist} clock={shift.clock} brief />
               </details>
             </li>
-            <li><span>Service notes</span><b>{notes.length}</b></li>
-            <li><span>Menu</span><b>{menu.length}</b></li>
           </ul>
 
           <div className="tonight">
