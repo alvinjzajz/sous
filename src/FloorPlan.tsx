@@ -353,32 +353,24 @@ export default function FloorPlan({
               />
             ))}
 
-            {footprint({ fill: 'url(#plank)', stroke: 'var(--edge)', strokeWidth: edge })}
+            {/* A round table is a FLAT top. The plank pattern's stripes are two more
+                tones inside a ten-cell circle, and at that size they read as banding
+                rather than as wood — the rects are big enough to carry the texture. */}
+            {footprint({ fill: round ? 'var(--wood)' : 'url(#plank)' })}
             {/* Section identity tints the top, the way the mockup tints by status.
                 An occupied table wears its section colour at full strength. */}
             {footprint({ fill: `var(${section?.color ?? '--panel'})`, opacity: party ? 0.72 : 0.28 })}
+            {/* Outline LAST of the fills. A tint painted over the outline eats the half
+                of the stroke that falls inside the shape, so the edge used to thin out
+                in proportion to how opaque the tint was — which is why an occupied
+                table's outline looked lighter than an empty one's. */}
+            {footprint({ fill: 'none', stroke: 'var(--edge)', strokeWidth: edge })}
 
-            {/* Bevel: every object in the mockup is lit from above. */}
-            {round ? (
-              // The rim one pixel in, lit above and shadowed below — the two halves of
-              // the same staircase, so the bevel steps with the outline it sits inside.
-              <>
-                <polyline
-                  points={pixelCircle(t.x, t.y, r - ROUND_PX).top}
-                  fill="none"
-                  stroke="var(--select)"
-                  strokeWidth={ROUND_PX}
-                  opacity="0.3"
-                />
-                <polyline
-                  points={pixelCircle(t.x, t.y, r - ROUND_PX).bottom}
-                  fill="none"
-                  stroke="#1e120a"
-                  strokeWidth={ROUND_PX}
-                  opacity="0.34"
-                />
-              </>
-            ) : (
+            {/* Bevel: every object in the mockup is lit from above — but only where
+                there is room for it. A round table's pixel is a whole cell, so a rim
+                inside a 4-pixel radius merges with the outline into one heavy dark
+                ring and buys nothing but clutter. Rects are big enough to carry it. */}
+            {!round && (
               <>
                 <rect x={x + 1} y={y + 1} width={t.w - 2} height="0.5" fill="var(--select)" opacity="0.3" />
                 <rect x={x + 1} y={y + t.h - 1.5} width={t.w - 2} height="0.5" fill="#1e120a" opacity="0.34" />
