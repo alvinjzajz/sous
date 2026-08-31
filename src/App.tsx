@@ -7,6 +7,7 @@
 //
 // Five of the six detail panes and the agent activity rail are day 4.
 import { useState } from 'react';
+import type { CSSProperties } from 'react';
 import FloorPlan from './FloorPlan.tsx';
 import { clearTable, fireCourse, seatParty, setPin } from './mutations.ts';
 import type { Result } from './mutations.ts';
@@ -196,18 +197,19 @@ export default function App() {
           </div>
         </header>
 
-        <div className="stage">
-          <div className="floorFrame">
-            <FloorPlan
-              plan={plan}
-              parties={parties}
-              cooking={stationLoad(state)}
-              queued={stationLoad(state, 'queued')}
-              conflicts={conflicts}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-            />
-          </div>
+        <div
+          className="stage"
+          style={{ '--room': String(plan.bounds.w / plan.bounds.h) } as CSSProperties}
+        >
+          <FloorPlan
+            plan={plan}
+            parties={parties}
+            cooking={stationLoad(state)}
+            queued={stationLoad(state, 'queued')}
+            conflicts={conflicts}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
         </div>
 
         <footer className="footbar">

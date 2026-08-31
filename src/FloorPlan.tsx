@@ -10,16 +10,27 @@
 // pixel. Every coordinate below must stay an integer.
 import type { Conflict, FloorPlan as Plan, Party, Table, Wall } from './types.ts';
 
+/**
+ * Render units per cell — the pixel-art resolution of the canvas.
+ *
+ * The DOMAIN stays in cells: 1 cell = 0.125 m, integers only (CLAUDE.md #1), and none
+ * of that changes. This is the RENDER grid laid over it, and it is twice as fine, so
+ * one pixel-art pixel is HALF a cell. Everything in this file may therefore use halves
+ * — a 0.5-cell stroke is exactly one whole render pixel — which is what lets the floor
+ * carry the mockup's finer detail and smaller labels without moving a single table.
+ */
+const PX = 2;
+
 /** Wall thickness, in cells. */
 const WALL = 2;
 /** Chair block size and its gap from the table edge, in cells. */
-const CHAIR = 3;
+const CHAIR = 2.5;
 /** Chairs sit flush to the aisle: at 8-10 cells between tables, any more overlaps. */
 const CHAIR_GAP = 1;
 /** Cells per station concurrency slot: a 2-cell block plus a 1-cell gap. */
 const SLOT_PITCH = 3;
 /** Corner notch, in cells. The mockup's signature — square objects are never square. */
-const NOTCH = 1;
+const NOTCH = 0.5;
 /** Top of the dining floor: below the kitchen line and its wall. */
 const FLOOR_TOP = 22;
 
@@ -100,7 +111,7 @@ function PixelText({
 }) {
   return (
     <>
-      <text x={x} y={y + 1} fontSize={size} fill={shadow}>{children}</text>
+      <text x={x} y={y + 0.5} fontSize={size} fill={shadow}>{children}</text>
       <text x={x} y={y} fontSize={size} fill={fill}>{children}</text>
     </>
   );
@@ -137,8 +148,18 @@ export default function FloorPlan({
     if (c.severity === 'error' || !flagged.has(c.targetId)) flagged.set(c.targetId, c.severity);
   }
 
+  // width/height give the SVG an INTRINSIC size, which makes it a replaced element:
+  // that is what lets CSS fit it inside the stage on both axes without letterboxing —
+  // the replaced-element sizing rules re-derive one axis when the other is clamped.
+  // A plain div with aspect-ratio does not do that.
   return (
-    <svg className="floor" viewBox={`0 0 ${bounds.w} ${bounds.h}`} aria-label="Restaurant floor plan">
+    <svg
+      className="floor"
+      viewBox={`0 0 ${bounds.w * PX} ${bounds.h * PX}`}
+      width={bounds.w * PX}
+      height={bounds.h * PX}
+      aria-label="Restaurant floor plan"
+    >
       <defs>
         {/* Floorboards: planks running top-to-bottom in three tones, butt-jointed
             every 8 cells, with a nail head per board. Mirrors the mockup's layered
@@ -147,14 +168,14 @@ export default function FloorPlan({
           <rect width="8" height="8" fill="var(--floor-1)" />
           <rect x="3" width="3" height="8" fill="var(--floor-2)" />
           <rect x="6" width="2" height="8" fill="var(--floor-3)" />
-          <rect y="7" width="8" height="1" fill="var(--seam)" opacity="0.2" />
-          <rect x="7" width="1" height="7" fill="var(--seam)" opacity="0.14" />
-          <rect x="1" y="3" width="1" height="1" fill="var(--seam)" opacity="0.26" />
+          <rect y="7.5" width="8" height="0.5" fill="var(--seam)" opacity="0.2" />
+          <rect x="7.5" width="0.5" height="7.5" fill="var(--seam)" opacity="0.14" />
+          <rect x="1" y="3" width="0.5" height="0.5" fill="var(--seam)" opacity="0.26" />
         </pattern>
         {/* Tabletops get a tighter plank so they read as a separate object. */}
         <pattern id="plank" width="4" height="4" patternUnits="userSpaceOnUse">
           <rect width="4" height="4" fill="var(--wood)" />
-          <rect y="3" width="4" height="1" fill="var(--wood-dk)" />
+          <rect y="3.5" width="4" height="0.5" fill="var(--wood-dk)" />
         </pattern>
         {/* Back of house is tiled, not boarded. */}
         <pattern id="tile" width="8" height="8" patternUnits="userSpaceOnUse">
@@ -164,6 +185,8 @@ export default function FloorPlan({
         </pattern>
       </defs>
 
+      {/* One scale, applied once. Every coordinate below is still in CELLS. */}
+      <g transform={`scale(${PX})`}>
       <rect width={bounds.w} height={bounds.h} fill="url(#tile)" />
       {/* ponytail: no 0.5 m snap-grid overlay — it fights the floor's own nail-head
           grid and nothing snaps until add_table lands. Re-add it on day 3, gated on
@@ -198,15 +221,15 @@ export default function FloorPlan({
           .join(', ');
         return (
           <g key={s.id} role="img" aria-label={label}>
-            <polygon points={notched(x, y, s.w, s.h)} fill="var(--counter)" stroke="var(--counter-dk)" strokeWidth="1" />
+            <polygon points={notched(x, y, s.w, s.h)} fill="var(--counter)" stroke="var(--counter-dk)" strokeWidth="0.5" />
             {/* A station with a backlog runs hot. Amber is a fill, never text (§6.1). */}
             {waiting > 0 && <polygon points={notched(x, y, s.w, s.h)} fill="var(--amber)" opacity="0.42" />}
-            <rect x={x + 1} y={y + 1} width={s.w - 2} height="1" fill="var(--select)" opacity="0.18" />
-            <rect x={x + 1} y={y + s.h - 2} width={s.w - 2} height="1" fill="#0c1a14" opacity="0.4" />
+            <rect x={x + 1} y={y + 1} width={s.w - 2} height="0.5" fill="var(--select)" opacity="0.18" />
+            <rect x={x + 1} y={y + s.h - 1.5} width={s.w - 2} height="0.5" fill="#0c1a14" opacity="0.4" />
             <PixelText
               x={s.x}
               y={slots ? s.y - 2 : s.y}
-              size={4}
+              size={3}
               fill="var(--select)"
               shadow="rgba(12,26,20,.55)"
             >
@@ -288,7 +311,7 @@ export default function FloorPlan({
                 height={CHAIR}
                 fill={i < seated ? 'var(--select)' : 'var(--chair)'}
                 stroke="var(--chair-back)"
-                strokeWidth="1"
+                strokeWidth="0.5"
               />
             ))}
 
@@ -304,21 +327,21 @@ export default function FloorPlan({
                   d={`M ${t.x - r + 1} ${t.y} A ${r - 1} ${r - 1} 0 0 1 ${t.x + r - 1} ${t.y}`}
                   fill="none"
                   stroke="var(--select)"
-                  strokeWidth="1"
+                  strokeWidth="0.5"
                   opacity="0.3"
                 />
                 <path
                   d={`M ${t.x - r + 1} ${t.y} A ${r - 1} ${r - 1} 0 0 0 ${t.x + r - 1} ${t.y}`}
                   fill="none"
                   stroke="#1e120a"
-                  strokeWidth="1"
+                  strokeWidth="0.5"
                   opacity="0.34"
                 />
               </>
             ) : (
               <>
-                <rect x={x + 1} y={y + 1} width={t.w - 2} height="1" fill="var(--select)" opacity="0.3" />
-                <rect x={x + 1} y={y + t.h - 2} width={t.w - 2} height="1" fill="#1e120a" opacity="0.34" />
+                <rect x={x + 1} y={y + 1} width={t.w - 2} height="0.5" fill="var(--select)" opacity="0.3" />
+                <rect x={x + 1} y={y + t.h - 1.5} width={t.w - 2} height="0.5" fill="#1e120a" opacity="0.34" />
               </>
             )}
 
@@ -336,12 +359,13 @@ export default function FloorPlan({
                 3,
               )}
 
-            {/* Silkscreen advances ~0.6em, so a 3-char name needs ~1.8x the font size
-                in cells. Drop a size on the 2-tops rather than let it spill. */}
-            <PixelText x={t.x} y={t.y - 2} size={t.w >= 8 ? 4 : 3} fill="var(--select)" shadow="rgba(24,14,8,.65)">
+            {/* Silkscreen advances ~0.6em, so a 3-char name is ~1.8x the font size in
+                cells. On a ROUND table the width available is the chord at the label's
+                own y, not the diameter — which is what used to push T12 over its edge. */}
+            <PixelText x={t.x} y={t.y - 1.5} size={t.w >= 10 ? 3 : 2.5} fill="var(--select)" shadow="rgba(24,14,8,.65)">
               {t.name}
             </PixelText>
-            <text x={t.x} y={t.y + 3} fontSize="3" fill="var(--select)" opacity="0.78">
+            <text x={t.x} y={t.y + 2} fontSize="2" fill="var(--select)" opacity="0.78">
               {party ? `${t.seats}·${section?.name.charAt(0) ?? ''}` : String(t.seats)}
             </text>
 
@@ -354,15 +378,15 @@ export default function FloorPlan({
                 const [px, py] = round ? [x, y] : [x + 2, y + 2];
                 return (
                   <g>
-                    <rect x={px} y={py + 3} width="1" height="2" fill="#1e120a" />
+                    <rect x={px} y={py + 2.5} width="0.5" height="1.5" fill="#1e120a" />
                     <rect
                       x={px - 1}
                       y={py}
-                      width="3"
-                      height="3"
+                      width="2.5"
+                      height="2.5"
                       fill="var(--select)"
                       stroke="#1e120a"
-                      strokeWidth="1"
+                      strokeWidth="0.5"
                     />
                   </g>
                 );
@@ -376,7 +400,7 @@ export default function FloorPlan({
               height={t.h + 6}
               fill="none"
               stroke="var(--select)"
-              strokeWidth="1"
+              strokeWidth="0.5"
               opacity="0.7"
             />
             {selectedId === t.id && (
@@ -387,12 +411,13 @@ export default function FloorPlan({
                 height={t.h + 6}
                 fill="none"
                 stroke="var(--select)"
-                strokeWidth="1"
+                strokeWidth="0.5"
               />
             )}
           </g>
         );
       })}
+      </g>
     </svg>
   );
 }
