@@ -318,9 +318,10 @@ export default function FloorPlan({
           ) : (
             <polygon points={notched(x - grow, y - grow, t.w + grow * 2, t.h + grow * 2)} {...props} />
           );
-        // A stroke is one pixel of whatever grid the object is drawn on: a whole cell
-        // for a round table, half a cell for everything else.
-        const edge = round ? ROUND_PX : 0.5;
+        // ROUND_PX quantises the SHAPE of a round table, not its styling: outline,
+        // texture and bevel are the same weight the rects wear, so the two read as one
+        // set of furniture rather than two. Only the staircase edge is coarse.
+        const edge = 0.5;
 
         return (
           <g
@@ -353,10 +354,7 @@ export default function FloorPlan({
               />
             ))}
 
-            {/* A round table is a FLAT top. The plank pattern's stripes are two more
-                tones inside a ten-cell circle, and at that size they read as banding
-                rather than as wood — the rects are big enough to carry the texture. */}
-            {footprint({ fill: round ? 'var(--wood)' : 'url(#plank)' })}
+            {footprint({ fill: 'url(#plank)' })}
             {/* Section identity tints the top, the way the mockup tints by status.
                 An occupied table wears its section colour at full strength. */}
             {footprint({ fill: `var(${section?.color ?? '--panel'})`, opacity: party ? 0.72 : 0.28 })}
@@ -366,11 +364,27 @@ export default function FloorPlan({
                 table's outline looked lighter than an empty one's. */}
             {footprint({ fill: 'none', stroke: 'var(--edge)', strokeWidth: edge })}
 
-            {/* Bevel: every object in the mockup is lit from above — but only where
-                there is room for it. A round table's pixel is a whole cell, so a rim
-                inside a 4-pixel radius merges with the outline into one heavy dark
-                ring and buys nothing but clutter. Rects are big enough to carry it. */}
-            {!round && (
+            {/* Bevel: every object in the mockup is lit from above. On a round table
+                it is the rim one pixel in, lit above and shadowed below — the two
+                halves of the same staircase, so it steps with the outline around it. */}
+            {round ? (
+              <>
+                <polyline
+                  points={pixelCircle(t.x, t.y, r - ROUND_PX).top}
+                  fill="none"
+                  stroke="var(--select)"
+                  strokeWidth="0.5"
+                  opacity="0.3"
+                />
+                <polyline
+                  points={pixelCircle(t.x, t.y, r - ROUND_PX).bottom}
+                  fill="none"
+                  stroke="#1e120a"
+                  strokeWidth="0.5"
+                  opacity="0.34"
+                />
+              </>
+            ) : (
               <>
                 <rect x={x + 1} y={y + 1} width={t.w - 2} height="0.5" fill="var(--select)" opacity="0.3" />
                 <rect x={x + 1} y={y + t.h - 1.5} width={t.w - 2} height="0.5" fill="#1e120a" opacity="0.34" />
