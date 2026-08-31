@@ -8,6 +8,8 @@
 //
 // The viewBox is measured in CELLS (1 cell = 0.125 m), so one cell is one pixel-art
 // pixel. Every coordinate below must stay an integer.
+import { useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { Conflict, FloorPlan as Plan, Party, Table, Wall } from './types.ts';
 
 /**
@@ -23,6 +25,18 @@ const PX = 2;
 
 /** Wall thickness, in cells. */
 const WALL = 2;
+
+/** A table being dragged, in cells. `dx`/`dy` hold the grab offset from its centre. */
+interface Drag {
+  id: string;
+  dx: number;
+  dy: number;
+  x: number;
+  y: number;
+  moved: boolean;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 /** Chair block size and its gap from the table edge, in cells. */
 const CHAIR = 2.5;
 /** Chairs sit flush to the aisle: at 8-10 cells between tables, any more overlaps. */
@@ -173,12 +187,37 @@ interface Props {
   conflicts?: Conflict[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  /**
+   * Drop position for a dragged table, in CELLS, already snapped and clamped to the
+   * dining floor. Fires ONCE per drag, on release, so a drag across the room is one
+   * undo step rather than forty (SOUS_PLAN.md §2, rule 1).
+   */
+  onMove?: (tableId: string, x: number, y: number) => void;
+  /** Tables are draggable in design mode only; service refuses the mutation anyway. */
+  canDrag?: boolean;
 }
 
 export default function FloorPlan({
   plan, parties, cooking = {}, queued = {}, conflicts = [], selectedId, onSelect,
+  onMove, canDrag = false,
 }: Props) {
   const { bounds } = plan;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [drag, setDrag] = useState<Drag | null>(null);
+  /** Set on a real drag so the click that follows pointerup does not also select. */
+  const dragged = useRef(false);
+
+  /**
+   * Screen point to CELLS. getScreenCTM maps to viewBox units and the whole floor is
+   * drawn inside one scale(PX), so the divide is the only maths this needs — no zoom
+   * bookkeeping anywhere, which is the payoff for measuring the viewBox in cells (§6.1).
+   */
+  const toCell = (e: ReactPointerEvent) => {
+    const ctm = svgRef.current?.getScreenCTM();
+    if (!ctm) return null;
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+    return { x: p.x / PX, y: p.y / PX };
+  };
   const sectionOf = new Map(plan.sections.flatMap((s) => s.tableIds.map((id) => [id, s] as const)));
   // A combination shows the same party on every table it holds.
   const partyAt = new Map<string, Party>();
@@ -199,6 +238,7 @@ export default function FloorPlan({
   // A plain div with aspect-ratio does not do that.
   return (
     <svg
+      ref={svgRef}
       className="floor"
       viewBox={`0 0 ${bounds.w * PX} ${bounds.h * PX}`}
       width={bounds.w * PX}
@@ -347,7 +387,11 @@ export default function FloorPlan({
         );
       })}
 
-      {plan.tables.map((t) => {
+      {plan.tables.map((t0) => {
+        // While this table is being dragged it renders at the pointer, not at the state
+        // position. Shadowing `t` keeps every line below unchanged and means the drag
+        // never writes to state until the drop.
+        const t = drag?.id === t0.id ? { ...t0, x: drag.x, y: drag.y } : t0;
         const section = sectionOf.get(t.id);
         const party = partyAt.get(t.id);
         const x = t.x - t.w / 2;
@@ -381,16 +425,53 @@ export default function FloorPlan({
         // texture and bevel are the same weight the rects wear, so the two read as one
         // set of furniture rather than two. Only the staircase edge is coarse.
         const edge = 0.5;
+        const locked = t.pinned || !!party?.pinned;
 
         return (
           <g
             key={t.id}
-            className="table"
+            className={`table${canDrag && !locked ? ' table--drag' : ''}${drag?.id === t.id ? ' table--dragging' : ''}`}
             role="button"
             tabIndex={0}
             aria-label={label}
             aria-pressed={selectedId === t.id}
-            onClick={() => onSelect(selectedId === t.id ? null : t.id)}
+            onPointerDown={(e) => {
+              // A PINNED table does not move, for anyone. Same rule as the mutation,
+              // just felt earlier: the drag never starts (CLAUDE.md #9).
+              if (!canDrag || locked || e.button !== 0) return;
+              const c = toCell(e);
+              if (!c) return;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              setDrag({ id: t.id, dx: t.x - c.x, dy: t.y - c.y, x: t.x, y: t.y, moved: false });
+            }}
+            onPointerMove={(e) => {
+              if (drag?.id !== t.id) return;
+              const c = toCell(e);
+              if (!c) return;
+              const snap = (v: number) => Math.round(v / plan.gridSize) * plan.gridSize;
+              // Clamp to the DINING floor, not the whole canvas: the kitchen is not a
+              // place to put a four-top. Geometry stays integer cells (CLAUDE.md #1).
+              const nx = clamp(snap(c.x + drag.dx), WALL + t.w / 2, bounds.w - WALL - t.w / 2);
+              const ny = clamp(snap(c.y + drag.dy), FLOOR_TOP + t.h / 2, bounds.h - WALL - t.h / 2);
+              if (nx !== drag.x || ny !== drag.y) setDrag({ ...drag, x: nx, y: ny, moved: true });
+            }}
+            onPointerUp={(e) => {
+              if (drag?.id !== t.id) return;
+              e.currentTarget.releasePointerCapture(e.pointerId);
+              const dropped = drag;
+              setDrag(null);
+              if (!dropped.moved) return; // a plain click; let onClick select
+              dragged.current = true;
+              onMove?.(t.id, dropped.x, dropped.y);
+            }}
+            onPointerCancel={() => setDrag(null)}
+            onClick={() => {
+              if (dragged.current) {
+                dragged.current = false;
+                return;
+              }
+              onSelect(selectedId === t.id ? null : t.id);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();

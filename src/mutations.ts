@@ -18,7 +18,7 @@ import { floorPlan } from './seed.ts';
 import { RUNNER_MIN, fireTicket, freeTables, quoteWait, seatAt, tablesHeld } from './sim.ts';
 import { MIN_AISLE_CELLS, fmtClock } from './types.ts';
 import type {
-  Conflict, MenuCourse, MenuItem, Party, SousState, Table, Ticket, TicketItem,
+  Conflict, FloorPlan, MenuCourse, MenuItem, Party, SousState, Table, Ticket, TicketItem,
 } from './types.ts';
 
 export type Actor = 'human' | 'agent';
@@ -38,6 +38,9 @@ const JOIN_MAX = 2 * MIN_AISLE_CELLS;
 /** Caps on agent-supplied order lines — schema validation is not enough (§12.1). */
 const MAX_LINES = 12;
 const MAX_QTY = 12;
+/** Table footprint bounds, in cells. Shared by updateTable and the reshape buttons. */
+const MIN_SIDE = 4;
+const MAX_SIDE = 60;
 /** Free text a tool may write into state. */
 const MAX_TEXT = 240;
 
@@ -103,8 +106,32 @@ function findParty(s: SousState, a: { partyId?: string; tableId?: string }): Par
 const conflictKey = (c: Conflict) => `${c.type}|${c.targetId}|${c.message}`;
 
 /**
- * Errors this table's placement introduces, and nothing else. The same engine,
- * filtered by difference (CLAUDE.md #6) — geometry is never re-implemented here.
+ * PLACEMENT REPORTS, IT DOES NOT REFUSE.
+ *
+ * A layout edit puts a table wherever it was asked to go, and any overlap or closed
+ * aisle comes back as a sentence on the RESULT and as a live mark on the floor — which
+ * is SOUS_PLAN.md §4's stated mitigation ("run computeConflicts after every layout
+ * mutation and return its findings in the tool result so the agent self-corrects")
+ * rather than the extra belt of refusing outright. A person dragging a table across the
+ * room must never be fought by the grid, and the agent still gets told what it broke.
+ *
+ * The gate moved to `setPin`: you may put a table anywhere, but you may only PIN one
+ * that is actually clear. Pinning is the commitment, so pinning is where legality is
+ * enforced.
+ */
+function placementNote(s: SousState, table: Table): string {
+  const bad = placementErrors(s, table);
+  if (!bad.length) return '';
+  const spot = findSpot(s, table, { x: table.x, y: table.y });
+  const hint = spot && (spot.x !== table.x || spot.y !== table.y)
+    ? ` Nearest clear spot is x ${spot.x}, y ${spot.y}.`
+    : '';
+  return ` ${bad[0].message}${hint}`;
+}
+
+/**
+ * Errors this table's placement introduces, and nothing else. The same engine, filtered
+ * by difference (CLAUDE.md #6) — geometry is never re-implemented here.
  */
 function placementErrors(s: SousState, table: Table): Conflict[] {
   const others = s.plan.tables.filter((t) => t.id !== table.id);
@@ -170,25 +197,32 @@ export type Reshape = 'rotate' | 'grow' | 'shrink' | 'widen';
  * growing a second geometry path. Duplicate and Delete are addTable and removeTable
  * directly and need nothing here.
  *
+ * SEATS ARE NOT DERIVED FROM SIZE. These four change the footprint only; how many covers
+ * a table takes is a judgement the person makes with the seat stepper beside them (the
+ * mockup's "SELECTED TABLE / Seats - 4 +"). A six-top pushed into a corner is still a
+ * six-top, and guessing otherwise silently rewrote the room's capacity.
+ *
  * Returns null when the button should be DISABLED rather than shipped dead: rotate is a
- * no-op on a round table (w === h by invariant), and 1 and 12 are the seat-count ends.
- * Grow and Shrink step through protoFor, so seats and footprint can never disagree.
+ * no-op on a round table (w === h by invariant), and MIN/MAX are the size ends.
  */
 export function reshape(t: Table, kind: Reshape, grid: number) {
+  const fits = (w: number, h: number) => w >= MIN_SIDE && h >= MIN_SIDE && w <= MAX_SIDE && h <= MAX_SIDE;
   switch (kind) {
     case 'rotate':
       return t.w === t.h ? null : { tableId: t.id, w: t.h, h: t.w };
     case 'grow':
     case 'shrink': {
-      const seats = t.seats + (kind === 'grow' ? 2 : -2);
-      if (seats < 1 || seats > 12) return null;
-      const p = protoFor(seats);
-      return { tableId: t.id, seats, w: p.w, h: p.h, shape: p.shape };
+      const step = kind === 'grow' ? grid : -grid;
+      // A round table is square by invariant, so it grows on both axes together.
+      const [w, h] = [t.w + step, t.shape === 'round' ? t.w + step : t.h + step];
+      return fits(w, h) ? { tableId: t.id, w, h } : null;
     }
-    case 'widen':
+    case 'widen': {
       // updateTable forces h === w on a round table, so widening one would just grow it.
       // Widening is the move that turns a round two-top into a rect; say so explicitly.
-      return { tableId: t.id, w: t.w + grid, shape: 'rect' as const };
+      const w = t.w + grid;
+      return fits(w, t.h) ? { tableId: t.id, w, shape: 'rect' as const } : null;
+    }
   }
 }
 
@@ -297,24 +331,21 @@ export function addTable(
     provenance: by,
   };
 
-  if (placed) {
-    const bad = placementErrors(s, table);
-    if (bad.length) {
-      const spot = findSpot(s, table, near);
-      const hint = spot ? ` Nearest clear spot is x ${spot.x}, y ${spot.y}.` : '';
-      return no(`${bad[0].message}${hint}`);
-    }
-  } else {
+  // Without an explicit coordinate, still ask findSpot for somewhere legal — that is
+  // what anchors and Duplicate are for. If nothing is clear, place it anyway and say so.
+  if (!placed) {
     const spot = findSpot(s, table, near);
-    if (!spot) return no(`Nothing ${seats}-seat fits ${a.anchor ?? 'there'} with ${Math.round(MIN_AISLE_CELLS * 125)}mm aisles.`);
-    [table.x, table.y] = [spot.x, spot.y];
+    if (spot) [table.x, table.y] = [spot.x, spot.y];
   }
 
   const sec = a.sectionId ? findSection(s, a.sectionId) : findSection(s, nearestSection(s, table));
   if (!sec) return no(`There is no section ${a.sectionId}. Sections are ${list(s.plan.sections.map((x) => x.name))}.`);
   s.plan.tables.push(table);
   putInSection(s, table.id, sec.id);
-  return ok(`Placed ${table.name}, ${seats} seats, in ${sec?.name ?? 'no'} section at x ${table.x}, y ${table.y}.`, table);
+  return ok(
+    `Placed ${table.name}, ${seats} seats, in ${sec?.name ?? 'no'} section at x ${table.x}, y ${table.y}.${placementNote(s, table)}`,
+    table,
+  );
 }
 
 export function updateTable(
@@ -354,23 +385,19 @@ export function updateTable(
   if (a.w !== undefined) next.w = Math.round(a.w);
   if (a.h !== undefined) next.h = Math.round(a.h);
   if (next.shape === 'round') next.h = next.w; // round tables are square by invariant
-  if (next.w < 4 || next.h < 4 || next.w > 60 || next.h > 60) {
-    return no(`${next.w} x ${next.h} cells is not a table; 4 to 60 cells a side.`);
+  if (next.w < MIN_SIDE || next.h < MIN_SIDE || next.w > MAX_SIDE || next.h > MAX_SIDE) {
+    return no(`${next.w} x ${next.h} cells is not a table; ${MIN_SIDE} to ${MAX_SIDE} cells a side.`);
   }
   if (a.x !== undefined) next.x = Math.round(a.x);
   if (a.y !== undefined) next.y = Math.round(a.y);
 
-  const bad = placementErrors(s, next);
-  if (bad.length) {
-    const spot = findSpot(s, next, { x: next.x, y: next.y });
-    const hint = spot && (spot.x !== next.x || spot.y !== next.y) ? ` Nearest clear spot is x ${spot.x}, y ${spot.y}.` : '';
-    return no(`${bad[0].message}${hint}`);
-  }
-
   Object.assign(t, next, { provenance: by });
   if (section) putInSection(s, t.id, section.id);
   const sec = s.plan.sections.find((x) => x.tableIds.includes(t.id));
-  return ok(`${t.name}: ${t.seats} seats, ${t.w} x ${t.h} cells at x ${t.x}, y ${t.y}, ${sec?.name ?? 'no'} section.`, t);
+  return ok(
+    `${t.name}: ${t.seats} seats, ${t.w} x ${t.h} cells at x ${t.x}, y ${t.y}, ${sec?.name ?? 'no'} section.${placementNote(s, t)}`,
+    t,
+  );
 }
 
 export function removeTable(s: SousState, a: { tableId: string }, _by: Actor): Result<Table> {
@@ -484,7 +511,9 @@ export function applyLayoutTemplate(
       pinned: false,
       provenance: by,
     };
-    if (placementErrors(s, table).length) continue; // a pinned table is in the way
+    // A row landing on a pinned table is still skipped: the pin is the one thing a
+    // template may not walk over (CLAUDE.md #9). Everything else is placed and reported.
+    if (placementErrors({ ...s, plan: { ...s.plan, tables: kept } }, table).length) continue;
     s.plan.tables.push(table);
     putInSection(s, table.id, table.sectionId);
     seated += table.seats;
@@ -495,6 +524,50 @@ export function applyLayoutTemplate(
   return ok(
     `Laid out a ${a.template} room: ${s.plan.tables.length} tables, ${total} covers.${held}`,
     { tables: s.plan.tables.length, covers: total },
+  );
+}
+
+/**
+ * Put a saved floor plan back on the floor (SOUS_PLAN.md §8, "Design mode's human half").
+ *
+ * Goes through the mutation path like everything else, so loading a layout undoes. Walls,
+ * stations and bounds are taken wholesale because nothing on the tool surface can change
+ * them; only tables and sections can differ between two saved rooms.
+ */
+export function applySavedLayout(
+  s: SousState,
+  a: { name: string; plan: FloorPlan },
+  _by: Actor,
+): Result<{ tables: number; covers: number }> {
+  const shut = designOnly(s);
+  if (shut) return shut;
+  // The one coupling out of `plan` is party.tableId, so this is not optional.
+  if (liveParties(s).length) {
+    return no('There are people at tables. Load a different room before service, not during it.');
+  }
+
+  // A pin is the one thing a load may not walk over (CLAUDE.md #9). Keep pinned tables
+  // and drop them back on top, so "don't move this one" survives a whole-room swap.
+  const kept = s.plan.tables.filter((t) => t.pinned);
+  const keptNames = kept.map((t) => t.name);
+  const saved = structuredClone(a.plan);
+
+  s.plan.tables = [...saved.tables.filter((t) => !kept.some((k) => k.name === t.name)), ...kept];
+  s.plan.sections = saved.sections.map((sec) => ({
+    ...sec,
+    tableIds: sec.tableIds.filter((id) => s.plan.tables.some((t) => t.id === id)),
+  }));
+  for (const t of kept) if (!s.plan.sections.some((x) => x.tableIds.includes(t.id))) {
+    putInSection(s, t.id, nearestSection(s, t));
+  }
+
+  const covers = s.plan.tables.reduce((n, t) => n + t.seats, 0);
+  const held = keptNames.length
+    ? ` Left ${list(keptNames)} where you pinned ${keptNames.length > 1 ? 'them' : 'it'}.`
+    : '';
+  return ok(
+    `Loaded "${a.name}": ${s.plan.tables.length} tables, ${covers} covers.${held}`,
+    { tables: s.plan.tables.length, covers },
   );
 }
 
@@ -805,6 +878,16 @@ export function setPin(
     const who = party ? party.name : table?.name;
     return no(`${who} was pinned by the host. Ask them to unpin it.`);
   }
+  // Placement is free; PINNING is the commitment, so this is where legality is enforced.
+  // Only for bare furniture: pinning an occupied table pins the PARTY (CLAUDE.md #9), and
+  // "don't move these people" is about the people, not about where the table sits.
+  if (pinned && !party && table) {
+    const bad = placementErrors(s, table);
+    if (bad.length) {
+      return no(`${bad[0].message} Move ${table.name} clear before you pin it down.`);
+    }
+  }
+
   const label = party ? `${party.name} at ${table?.name ?? party.tableId}` : table?.name;
   if (target.pinned === pinned) return ok(`${label} is already ${pinned ? 'pinned' : 'unpinned'}.`, { targetId: a.targetId, pinned });
   target.pinned = pinned;

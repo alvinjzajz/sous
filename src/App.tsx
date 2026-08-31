@@ -12,6 +12,7 @@ import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import FloorPlan, { HOST_ID } from './FloorPlan.tsx';
 import { FloorPane, HostPane, SectionPane, StationPane, TablePane, TicketPane } from './Panes.tsx';
+import { updateTable } from './mutations.ts';
 import type { Result } from './mutations.ts';
 import { serviceOver, stationLoad } from './sim.ts';
 import { useSous } from './store.ts';
@@ -208,6 +209,8 @@ export default function App() {
             conflicts={conflicts}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            canDrag={mode === 'design'}
+            onMove={(tableId, x, y) => act((d) => updateTable(d, { tableId, x, y }, 'human'))}
           />
         </div>
 

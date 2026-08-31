@@ -55,6 +55,12 @@ export interface Sous {
    */
   run: <T>(fn: (draft: SousState) => Result<T>, by?: Actor) => Result<T>;
   log: LogLine[];
+  /**
+   * Put a line on the rail without touching domain state. For the things that are real
+   * actions but not mutations — saving a layout to localStorage, say — so they are still
+   * accounted for on screen.
+   */
+  say: (by: Actor, ok: boolean, message: string) => void;
   setShift: (patch: Partial<Shift>) => void;
   jumpTo: (minute: number) => void;
   reset: () => void;
@@ -156,7 +162,7 @@ export function useSous(): Sous {
   );
 
   return {
-    state, conflicts, log, run, setShift, jumpTo, reset, undo, redo,
+    state, conflicts, log, say, run, setShift, jumpTo, reset, undo, redo,
     canUndo: depth.past > 0,
     canRedo: depth.future > 0,
     ref,

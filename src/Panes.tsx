@@ -10,10 +10,11 @@
 // which is the platform doing the work a useState triple would have done.
 import type { FormEvent } from 'react';
 import {
-  ANCHORS, addTable, addToWaitlist, applyLayoutTemplate, assignSection, clearTable,
-  fireCourse, removeTable, reshape, resolveNote, retimeTicket, seatParty, setPin,
-  swapTicketItem, updateTable,
+  addTable, addToWaitlist, applyLayoutTemplate, applySavedLayout, assignSection,
+  clearTable, fireCourse, removeTable, reshape, resolveNote, retimeTicket, seatParty,
+  setPin, swapTicketItem, updateTable,
 } from './mutations.ts';
+import { deleteLayout, listLayouts, readLayout, saveLayout } from './layouts.ts';
 import type { Reshape, Result } from './mutations.ts';
 import { pickTable } from './sim.ts';
 import type { Sous } from './store.ts';
@@ -34,6 +35,54 @@ const RESHAPES: { kind: Reshape; label: string }[] = [
   { kind: 'shrink', label: 'Shrink' },
   { kind: 'widen', label: 'Widen' },
 ];
+
+/**
+ * The mockup's MODELS grid. Every tile maps onto real domain state — a seat count and a
+ * shape that `addTable` already understands — so there is nothing here the tools cannot
+ * also express. The mockup's Booth, Wall, Door and Planter tiles are deliberately absent:
+ * there is no booth in the model, and walls are §8's deferred `addWall`, so shipping them
+ * would be drawing furniture the app cannot actually hold.
+ */
+const MODELS: { label: string; seats: number; shape: Table['shape'] }[] = [
+  { label: '2-top', seats: 2, shape: 'rect' },
+  { label: '4-top', seats: 4, shape: 'rect' },
+  { label: 'Round 2', seats: 2, shape: 'round' },
+  { label: 'Round 4', seats: 4, shape: 'round' },
+  { label: '6-top', seats: 6, shape: 'rect' },
+  { label: '8-top', seats: 8, shape: 'rect' },
+];
+
+/** A table seen from above with its chairs, drawn to the tile. Decorative, not to scale. */
+function ModelIcon({ seats, shape }: { seats: number; shape: Table['shape'] }) {
+  const w = shape === 'round' ? 18 : 12 + seats * 3;
+  const h = shape === 'round' ? 18 : 14;
+  const perSide = shape === 'round' ? 1 : Math.ceil(seats / 2);
+  const spread = (i: number, n: number) => 20 + ((i + 1) * w) / (n + 1) - w / 2;
+  return (
+    <svg viewBox="0 0 40 34" width="40" height="34" aria-hidden="true" focusable="false">
+      {Array.from({ length: perSide }, (_, i) => (
+        <g key={i} fill="currentColor" opacity="0.65">
+          <rect x={spread(i, perSide) - 2.5} y={17 - h / 2 - 4} width="5" height="2.5" rx="1" />
+          <rect x={spread(i, perSide) - 2.5} y={17 + h / 2 + 1.5} width="5" height="2.5" rx="1" />
+        </g>
+      ))}
+      {shape === 'round' && (
+        <g fill="currentColor" opacity="0.65">
+          <rect x={20 - w / 2 - 4} y="14.5" width="2.5" height="5" rx="1" />
+          <rect x={20 + w / 2 + 1.5} y="14.5" width="2.5" height="5" rx="1" />
+        </g>
+      )}
+      {shape === 'round' ? (
+        <circle cx="20" cy="17" r={w / 2} fill="none" stroke="currentColor" strokeWidth="1.6" />
+      ) : (
+        <rect
+          x={20 - w / 2} y={17 - h / 2} width={w} height={h} rx="1.5"
+          fill="none" stroke="currentColor" strokeWidth="1.6"
+        />
+      )}
+    </svg>
+  );
+}
 
 const sentence = (v: string) => v[0].toUpperCase() + v.slice(1);
 const roomM = (n: number) => +(n * CELL_M).toFixed(1);
@@ -62,6 +111,17 @@ function fields(e: FormEvent<HTMLFormElement>) {
 }
 
 const liveParties = (s: SousState) => s.parties.filter((p) => p.course !== 'departed');
+
+/**
+ * One seat up or down, counted from the DRAFT rather than from the rendered table.
+ * React batches clicks, so two taps of "+" in the same tick would otherwise both read
+ * the same rendered seat count and the second would be a no-op.
+ */
+function bumpSeats(d: SousState, tableId: string, by: number) {
+  const t = d.plan.tables.find((x) => x.id === tableId);
+  if (!t) return refuse(`There is no table ${tableId}.`);
+  return updateTable(d, { tableId, seats: t.seats + by }, 'human');
+}
 
 /** Whoever the host stand would seat next: the earliest booking, then the door. */
 function nextWaiting(s: SousState) {
@@ -114,7 +174,7 @@ export function TablePane({ sous, act, select, table }: PaneProps & { table: Tab
 
       {design ? (
         <div className="block">
-          <span className="eyebrow">SHAPE</span>
+          <span className="eyebrow">TOOLS</span>
           <div className="actions">
             {RESHAPES.map(({ kind, label }) => {
               // null means the button is genuinely inapplicable — rotate on a round
@@ -126,7 +186,15 @@ export function TablePane({ sous, act, select, table }: PaneProps & { table: Tab
                   className="tbtn"
                   disabled={!args}
                   title={args ? label : `${label} does not apply to ${table.name}`}
-                  onClick={() => args && act((d) => updateTable(d, args, 'human'))}
+                  onClick={() =>
+                    args && act((d) => {
+                      // Recompute against the DRAFT. Two clicks inside one React batch
+                      // both see the same rendered `table`, so the second was a no-op.
+                      const live = d.plan.tables.find((x) => x.id === table.id);
+                      const next = live && reshape(live, kind, d.plan.gridSize);
+                      return next ? updateTable(d, next, 'human') : refuse(`${label} does not apply to ${table.name}.`);
+                    })
+                  }
                 >
                   {label}
                 </button>
@@ -152,6 +220,38 @@ export function TablePane({ sous, act, select, table }: PaneProps & { table: Tab
             >
               Delete
             </button>
+          </div>
+
+          <p className="hint">
+            {pinned
+              ? `${table.name} is pinned. Unpin it to move it.`
+              : `Editing ${table.name}. Drag it on the plan to reposition.`}
+          </p>
+
+          {/* SEATS ARE NOT DERIVED FROM SIZE. Grow and Shrink change the footprint; how
+              many covers the table takes is a judgement made here (the mockup's
+              "SELECTED TABLE / Seats - 4 +"). */}
+          <div className="field">
+            <span className="eyebrow">SEATS</span>
+            <div className="stepper">
+              <button
+                className="tbtn tbtn--sm"
+                disabled={table.seats <= 1}
+                aria-label="One seat fewer"
+                onClick={() => act((d) => bumpSeats(d, table.id, -1))}
+              >
+                −
+              </button>
+              <b>{table.seats}</b>
+              <button
+                className="tbtn tbtn--sm"
+                disabled={table.seats >= 12}
+                aria-label="One seat more"
+                onClick={() => act((d) => bumpSeats(d, table.id, +1))}
+              >
+                +
+              </button>
+            </div>
           </div>
 
           <form
@@ -626,6 +726,9 @@ export function SectionPane({ sous, select, section }: PaneProps & { section: Se
 
 export function FloorPane({ sous, act, select }: PaneProps) {
   const { state, conflicts } = sous;
+  // Re-read on every render. Saving pushes a line on the rail, which is state, so the
+  // list refreshes without a second copy of it living in a useState.
+  const saved = listLayouts();
   const { plan, shift, reservations, menu } = state;
   const design = shift.mode === 'design';
   const seats = plan.tables.reduce((n, t) => n + t.seats, 0);
@@ -651,41 +754,94 @@ export function FloorPane({ sous, act, select }: PaneProps) {
       </div>
 
       {design && (
-        <div className="block">
-          <span className="eyebrow">DESIGN</span>
-          <form
-            className="field"
-            onSubmit={(e) => {
-              const f = fields(e);
-              const seatCount = Number(f('seats'));
-              const anchor = f('anchor') as (typeof ANCHORS)[number];
-              act((d) => addTable(d, { seats: seatCount, anchor }, 'human'));
-            }}
-          >
-            <input name="seats" type="number" min={1} max={12} defaultValue={2} required />
-            <select name="anchor" defaultValue="centre">
-              {ANCHORS.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-            <button className="tbtn tbtn--sm" type="submit">Add table</button>
-          </form>
+        <>
+          <div className="block">
+            <span className="eyebrow">MODELS</span>
+            <div className="models">
+              {MODELS.map((m) => (
+                <button
+                  key={m.label}
+                  className="model"
+                  title={`Add a ${m.label} in the middle of the room, then drag it`}
+                  // Lands at the centre — or the nearest clear spot to it, since an
+                  // anchor still runs findSpot — and is dragged from there.
+                  onClick={() =>
+                    act((d) => addTable(d, { seats: m.seats, shape: m.shape, anchor: 'centre' }, 'human'))
+                  }
+                >
+                  <ModelIcon seats={m.seats} shape={m.shape} />
+                  <span>{m.label}</span>
+                </button>
+              ))}
+            </div>
+            <p className="hint">Drag any unpinned table on the plan to move it.</p>
+          </div>
 
-          <form
-            className="field"
-            onSubmit={(e) => {
-              const f = fields(e);
-              const template = f('template') as 'bistro' | 'banquet' | 'communal';
-              const covers = Number(f('covers'));
-              act((d) => applyLayoutTemplate(d, { template, covers }, 'human'));
-            }}
-          >
-            <select name="template" defaultValue="bistro">
-              {['bistro', 'banquet', 'communal'].map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <input name="covers" type="number" min={8} max={200} step={4} defaultValue={60} required />
-            <button className="tbtn tbtn--sm" type="submit">Lay out</button>
-          </form>
-          <p className="hint">Pinned tables stay where they are.</p>
-        </div>
+          <div className="block">
+            <span className="eyebrow">LAYOUTS</span>
+            <form
+              className="field"
+              onSubmit={(e) => {
+                const f = fields(e);
+                const r = saveLayout(f('name'), plan);
+                sous.say('human', r.ok, r.message);
+              }}
+            >
+              <input name="name" placeholder="Save this room as…" maxLength={40} required />
+              <button className="tbtn tbtn--sm" type="submit">Save</button>
+            </form>
+
+            {saved.length === 0 ? (
+              <p className="said">No saved layouts yet. Save the room and it comes back here.</p>
+            ) : (
+              <ul className="sections">
+                {saved.map((name) => (
+                  <li key={name}>
+                    <span>{name}</span>
+                    <button
+                      className="tbtn tbtn--sm"
+                      onClick={() => {
+                        const layout = readLayout(name);
+                        if (!layout) return sous.say('human', false, `The "${name}" layout could not be read back.`);
+                        act((d) => applySavedLayout(d, { name, plan: layout }, 'human'));
+                      }}
+                    >
+                      Load
+                    </button>
+                    <button
+                      className="tbtn tbtn--sm tbtn--no"
+                      aria-label={`Delete the ${name} layout`}
+                      onClick={() => {
+                        const r = deleteLayout(name);
+                        sous.say('human', r.ok, r.message);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <form
+              className="field"
+              onSubmit={(e) => {
+                const f = fields(e);
+                const template = f('template') as 'bistro' | 'banquet' | 'communal';
+                const covers = Number(f('covers'));
+                act((d) => applyLayoutTemplate(d, { template, covers }, 'human'));
+              }}
+            >
+              <span className="eyebrow">FROM</span>
+              <select name="template" defaultValue="bistro">
+                {['bistro', 'banquet', 'communal'].map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <input name="covers" type="number" min={8} max={200} step={4} defaultValue={60} required />
+              <button className="tbtn tbtn--sm" type="submit">Lay out</button>
+            </form>
+            <p className="hint">Pinned tables survive a template or a load.</p>
+          </div>
+        </>
       )}
 
       <div className="block">

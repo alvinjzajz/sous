@@ -9,9 +9,10 @@
 import assert from 'node:assert/strict';
 import { computeConflicts, errorsOnly } from '../src/conflicts.ts';
 import {
-  addTable, addToWaitlist, applyLayoutTemplate, assignSection, clearTable, fireCourse,
-  moveParty, protoFor, removeTable, reshape, resolveNote, restore, retimeTicket,
-  seatParty, setItem86, setPin, snapshot, swapTicketItem, updateTable,
+  addTable, addToWaitlist, applyLayoutTemplate, applySavedLayout, assignSection,
+  clearTable, findSpot, fireCourse, moveParty, removeTable, reshape, resolveNote,
+  restore, retimeTicket, seatParty, setItem86, setPin, snapshot, swapTicketItem,
+  updateTable,
 } from '../src/mutations.ts';
 import type { Result } from '../src/mutations.ts';
 import { floorPlan, seedState } from '../src/seed.ts';
@@ -129,9 +130,7 @@ fires('a quote that blew', (s) => {
   setPin(base, { targetId: pinnedTable }, 'human');
   const badCalls: [string, (s: SousState) => Result<unknown>][] = [
     ['addTable with 40 seats', (s) => addTable(s, { seats: 40 }, 'agent')],
-    ['addTable onto another table', (s) => addTable(s, { seats: 2, x: s.plan.tables[1].x, y: s.plan.tables[1].y }, 'agent')],
     ['updateTable on a pinned table', (s) => updateTable(s, { tableId: pinnedTable, seats: 8 }, 'agent')],
-    ['updateTable to nowhere', (s) => updateTable(s, { tableId: s.plan.tables[1].id, x: -50 }, 'agent')],
     ['removeTable on a pinned table', (s) => removeTable(s, { tableId: pinnedTable }, 'human')],
     ['assignSection to a section that is not there', (s) => assignSection(s, { tableIds: [s.plan.tables[1].id], sectionId: 'sec-nope' }, 'agent')],
     ['applyLayoutTemplate mid-service', (s) => applyLayoutTemplate(s, { template: 'bistro' }, 'agent')],
@@ -204,26 +203,33 @@ function occupiedTable(s: SousState): string {
   assert.deepEqual(computeConflicts(s, 'design'), [], `anchored placement broke the room: ${computeConflicts(s, 'design')[0]?.message}`);
   assert.ok(s.plan.sections.some((sec) => sec.tableIds.includes(t.id)), 'a new table belongs to no section');
 
-  // Raw coordinates that do not work come back with somewhere that does (§4).
+  // Raw coordinates that do not work are HONOURED and reported, with somewhere that
+  // does on the end of the sentence (§4, mitigation 3). Placement stopped refusing when
+  // drag-and-drop landed: a person moving a table must never be fought by the grid.
   const onTop = s.plan.tables[1];
-  const bad = addTable(s, { seats: 2, x: onTop.x, y: onTop.y }, 'agent');
-  refused(bad, 'placing a table on top of another');
-  assert.ok(/x \d+, y \d+/.test(say(bad)), `the refusal offers no alternative spot: "${say(bad)}"`);
+  const stacked = addTable(s, { seats: 2, x: onTop.x, y: onTop.y }, 'agent');
+  must(stacked, 'placing a table on top of another');
+  assert.ok(/overlaps/.test(say(stacked)), `stacking says nothing about the overlap: "${say(stacked)}"`);
+  assert.ok(/x \d+, y \d+/.test(say(stacked)), `the report offers no alternative spot: "${say(stacked)}"`);
 
   refused(addTable(s, { seats: 4, name: 'T1' }, 'agent'), 'reusing a table name', 'already');
   refused(addTable(s, { seats: 0 }, 'agent'), 'a table with no seats');
 }
 
 {
-  // The five day-4 quick actions are all updateTable underneath (§4), so this is what
-  // Rotate, Grow and Shrink will actually do — including refusing to eat an aisle.
+  // The quick actions are all updateTable underneath (§4). Geometry lands whatever it
+  // costs, and what it costs comes back on the sentence.
   const s = seedState();
   const round = s.plan.tables.find((t) => t.shape === 'round' && t.w > 8)!;
   must(updateTable(s, { tableId: round.id, w: 8 }, 'human'), 'shrinking a round table');
   assert.equal(round.w, round.h, 'a round table stopped being square');
   assert.equal(round.provenance, 'human', 'the human who moved it does not own it');
-  refused(updateTable(s, { tableId: round.id, w: 24 }, 'human'), 'growing a table into the aisle', 'aisle');
-  assert.equal(round.w, 8, 'the refused grow resized it anyway');
+  const eaten = updateTable(s, { tableId: round.id, w: 24 }, 'human');
+  must(eaten, 'growing a table into the aisle');
+  assert.ok(/aisle/.test(say(eaten)), `eating an aisle says nothing about it: "${say(eaten)}"`);
+  assert.equal(round.w, 24, 'the grow did not take');
+  // ...and the table that now blocks an aisle cannot be pinned down.
+  refused(setPin(s, { targetId: round.id }, 'human'), 'pinning a table that closes an aisle', 'aisle');
 }
 
 {
@@ -277,45 +283,41 @@ function occupiedTable(s: SousState): string {
 }
 
 {
-  // The four reshape buttons are arguments to updateTable and nothing else, so seats and
-  // footprint cannot disagree — and null is a DISABLED button, never a dead one (§4).
+  // The four reshape buttons are arguments to updateTable and nothing else. They change
+  // the FOOTPRINT ONLY: seats are set by hand on the stepper beside them, because
+  // deriving covers from size silently rewrote the room's capacity. null is a DISABLED
+  // button, never a dead one (SOUS_PLAN.md §4).
   const s = seedState();
   const grid = s.plan.gridSize;
-  const two = s.plan.tables.find((t) => t.shape === 'round' && t.seats === 2)!;
-  const four = s.plan.tables.find((t) => t.shape === 'round' && t.seats === 4)!;
+  const round = s.plan.tables.find((t) => t.shape === 'round')!;
   const rect = s.plan.tables.find((t) => t.shape === 'rect')!;
 
-  assert.equal(reshape(two, 'rotate', grid), null, 'rotate is live on a round table, where it is a no-op');
+  assert.equal(reshape(round, 'rotate', grid), null, 'rotate is live on a round table, where it is a no-op');
   assert.ok(reshape(rect, 'rotate', grid), 'rotate is disabled on a rect table, where it is the whole point');
-  assert.equal(reshape(two, 'shrink', grid), null, 'shrink ran off the bottom of the seat range');
-  assert.equal(reshape({ ...rect, seats: 12 }, 'grow', grid), null, 'grow ran off the top of the seat range');
+  assert.equal(reshape({ ...rect, w: 60 }, 'grow', grid), null, 'grow ran past the maximum side');
+  assert.equal(reshape({ ...rect, w: 4, h: 4 }, 'shrink', grid), null, 'shrink ran past the minimum side');
 
-  const wide = reshape(two, 'widen', grid);
+  const grown = reshape(round, 'grow', grid)!;
+  assert.deepEqual([grown.w, grown.h], [round.w + grid, round.w + grid], 'a round table did not grow on both axes');
+  assert.ok(!('seats' in grown), 'grow changed the seat count, which is now set by hand');
+
+  const wide = reshape(round, 'widen', grid);
   assert.ok(wide && 'shape' in wide, 'widen produced nothing');
   assert.equal(wide.shape, 'rect', 'widening a round table left it round, which is just grow');
-  assert.equal(wide.w, two.w + grid, 'widen did not step by the snap grid');
+  assert.equal(wide.w, round.w + grid, 'widen did not step by the snap grid');
 
-  const grown = reshape(two, 'grow', grid);
-  assert.ok(grown && 'seats' in grown, 'grow produced nothing for a two-top');
-  assert.equal(grown.seats, two.seats + 2, 'grow did not add two seats');
-  assert.deepEqual(
-    { w: grown.w, h: grown.h, shape: grown.shape },
-    protoFor(two.seats + 2),
-    'grow and protoFor disagree about the footprint, so seats and geometry can drift',
-  );
+  // The arguments survive the mutation they were computed for, and the seat count is
+  // exactly what it was before.
+  const seatsBefore = round.seats;
+  must(updateTable(s, grown, 'human'), 'growing a round table');
+  assert.deepEqual([round.w, round.h], [grown.w, grown.h], 'the grow did not take');
+  assert.equal(round.seats, seatsBefore, 'growing a table changed how many people sit at it');
 
-  // And the arguments survive the mutation they were computed for.
-  must(updateTable(s, grown, 'human'), 'growing a two-top to a four-top');
-  assert.equal(two.seats, 4, 'the grow did not take');
-  assert.deepEqual([two.w, two.h], [protoFor(4).w, protoFor(4).h], 'the grown table kept its old footprint');
-
-  // Grow is REFUSED on most of the seeded room, exactly as rotate is, and that is
-  // correct rather than broken: the room is packed to 915mm aisles, so a four-top going
-  // to six eats the window aisle. The refusal names the nearest clear spot, so the pane
-  // surfaces that sentence instead of treating the button as dead (§4).
-  const big = reshape(four, 'grow', grid);
-  assert.ok(big && 'seats' in big, 'grow produced nothing for a four-top');
-  refused(updateTable(s, big, 'human'), 'growing a four-top into the window aisle', 'nearest clear spot');
+  // Seats are their own control, and the one service rule on them still holds.
+  must(updateTable(s, { tableId: round.id, seats: 6 }, 'human'), 'setting the seat count by hand');
+  assert.equal(round.seats, 6, 'the seat count did not take');
+  assert.deepEqual([round.w, round.h], [grown.w, grown.h], 'setting seats moved the footprint');
+  refused(updateTable(s, { tableId: round.id, seats: 0 }, 'human'), 'a table with no seats');
 }
 
 {
@@ -333,8 +335,84 @@ function occupiedTable(s: SousState): string {
     'the duplicate raised a layout error, so it was placed by offset rather than by findSpot',
   );
 
-  // An explicit coordinate still REFUSES rather than quietly relocating (§4).
-  refused(addTable(s, { seats: 2, x: src.x, y: src.y }, 'agent'), 'placing a table on top of another', 'nearest clear spot');
+  // An explicit coordinate is HONOURED, and the overlap it causes comes back on the
+  // result so the agent can self-correct (SOUS_PLAN.md §4, mitigation 3). This is the
+  // rule the drag needs: a person moving a table must never be fought by the grid.
+  const onTop = must(addTable(s, { seats: 2, x: src.x, y: src.y }, 'agent'), 'placing a table on top of another')!;
+  assert.equal(onTop.x, src.x, 'an explicit coordinate was quietly relocated');
+  assert.ok(
+    errorsOnly(computeConflicts(s, 'design')).some((c) => c.type === 'overlap'),
+    'stacking two tables raised no overlap conflict',
+  );
+}
+
+// --- placement reports, pinning gates -----------------------------------------
+
+{
+  // The model that replaced refuse-on-conflict: put a table anywhere, and PIN only what
+  // is actually clear. Pinning is the commitment, so pinning is where legality lives.
+  const s = seedState();
+  const [a, b] = [s.plan.tables[0], s.plan.tables[1]];
+  const moved = must(updateTable(s, { tableId: a.id, x: b.x, y: b.y }, 'human'), 'dragging a table on top of another');
+  assert.ok(moved, 'the move returned no table');
+  assert.equal(a.x, b.x, 'the move was refused or relocated instead of honoured');
+  assert.ok(say(updateTable(s, { tableId: a.id, x: b.x, y: b.y }, 'human')).includes('overlap'),
+    'a stacked table does not say so on the result');
+
+  refused(setPin(s, { targetId: a.id }, 'human'), 'pinning a table that is on top of another', 'overlap');
+  assert.equal(a.pinned, false, 'the refused pin pinned it anyway');
+
+  // Move it clear and the same pin is fine.
+  must(updateTable(s, { tableId: a.id, x: a.x, y: a.y + 0 }, 'human'), 'a no-op move');
+  const spot = findSpot(s, a, { x: a.x, y: a.y })!;
+  must(updateTable(s, { tableId: a.id, x: spot.x, y: spot.y }, 'human'), 'moving it to the nearest clear spot');
+  must(setPin(s, { targetId: a.id }, 'human'), 'pinning a table that is clear');
+  assert.equal(a.pinned, true, 'the pin did not take');
+
+  // A PINNED table still refuses to move, for anyone. That rule did not change.
+  refused(updateTable(s, { tableId: a.id, x: 40, y: 40 }, 'agent'), 'moving a pinned table', 'pinned');
+}
+
+{
+  // Pinning an OCCUPIED table pins the party, and "don't move these people" is about the
+  // people, not about where the table sits - so geometry does not gate it (CLAUDE.md #9).
+  const s = peak();
+  const held = occupiedTable(s);
+  const t = s.plan.tables.find((x) => x.name === held || x.id === held)!;
+  s.shift.mode = 'design';
+  const other = s.plan.tables.find((x) => x.id !== t.id)!;
+  must(updateTable(s, { tableId: t.id, x: other.x, y: other.y }, 'human'), 'moving an occupied table onto another');
+  must(setPin(s, { targetId: t.id }, 'human'), 'pinning a party at a table that overlaps');
+}
+
+// --- saved layouts ------------------------------------------------------------
+
+{
+  // applySavedLayout is the load half of the localStorage layouts list. The store itself
+  // is browser-only, so the check exercises the mutation against a plan it holds directly.
+  const s = seedState();
+  const saved = structuredClone(s.plan);
+  must(removeTable(s, { tableId: 'T5' }, 'human'), 'clearing a table before saving');
+  must(removeTable(s, { tableId: 'T7' }, 'human'), 'clearing another');
+  must(setPin(s, { targetId: 'T1' }, 'human'), 'pinning a table before the load');
+
+  const out = must(applySavedLayout(s, { name: 'saturday', plan: saved }, 'human'), 'loading a saved layout')!;
+  assert.equal(out.tables, saved.tables.length, 'the loaded room has the wrong table count');
+  assert.ok(s.plan.tables.some((t) => t.name === 'T5'), 'the load did not bring the room back');
+  assert.equal(s.plan.tables.find((t) => t.name === 'T1')?.pinned, true, 'the load walked over a pin');
+  assert.equal(
+    s.plan.tables.filter((t) => t.name === 'T1').length, 1,
+    'the kept pin was duplicated by the load',
+  );
+  for (const t of s.plan.tables) {
+    assert.ok(
+      s.plan.sections.some((x) => x.tableIds.includes(t.id)),
+      `${t.name} came back from a load with no section`,
+    );
+  }
+
+  const busy = peak();
+  refused(applySavedLayout(busy, { name: 'saturday', plan: saved }, 'agent'), 'loading a layout mid-service', 'people at tables');
 }
 
 // --- apply_layout_template: the room the demo opens on ------------------------
@@ -554,7 +632,7 @@ for (const template of ['banquet', 'communal'] as const) {
 }
 
 console.log(
-  `mutations ok — 15 mutations, ${new Set(fired).size} conflict rules all firing, ` +
+  `mutations ok — 16 mutations, ${new Set(fired).size} conflict rules all firing, ` +
     'refusals never write, pins refuse both actors, only humans unpin, ' +
-    'undo rewinds the board and not the clock. Design edits refuse mid-service, and the six quick actions compute legal arguments.',
+    'undo rewinds the board and not the clock. Design edits refuse mid-service, placement reports instead of refusing, and only a table that is clear can be pinned.',
 );
