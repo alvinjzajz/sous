@@ -40,6 +40,16 @@ const ROUND_PX = 1;
 /** Top of the dining floor: below the kitchen line and its wall. */
 const FLOOR_TOP = 22;
 
+/**
+ * The host stand is a LABEL and a hit target, not modelled furniture: it is not in
+ * plan.stations, so computeConflicts never sees it.
+ * ponytail: a real host stand is an obstruction and would need aisle clearance like any
+ * other box. Ceiling — a table can be placed over it. Same call as chairs-as-obstructions
+ * (check-seed.ts): modelling it means re-spacing the seeded room, which is day 1 work.
+ * Upgrade is a Station with a footprint plus the re-space.
+ */
+export const HOST_ID = 'host';
+
 const WALL_FILL: Record<Wall['kind'], string> = {
   wall: 'var(--frame)',
   window: 'var(--sage)',
@@ -241,6 +251,38 @@ export default function FloorPlan({
         <rect key={w.id} {...wallRect(w, bounds)} fill={WALL_FILL[w.kind]} />
       ))}
 
+      {/* The host stand: the door, plus a few cells of floor inside it, as one target.
+          Clicking it opens tonight's book and the waitlist (§1). */}
+      {(() => {
+        const door = plan.walls.find((w) => w.kind === 'door');
+        if (!door) return null;
+        const x = Math.min(door.x1, door.x2);
+        const w = Math.abs(door.x2 - door.x1);
+        const y = bounds.h - WALL - 6;
+        const pick = () => onSelect(selectedId === HOST_ID ? null : HOST_ID);
+        return (
+          <g
+            className="table"
+            role="button"
+            tabIndex={0}
+            aria-label="Host stand: tonight's reservations, the waitlist and quoted waits"
+            aria-pressed={selectedId === HOST_ID}
+            onClick={pick}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                pick();
+              }
+            }}
+          >
+            <rect x={x} y={y} width={w} height={6 + WALL} fill="transparent" />
+            <PixelText x={x + w / 2} y={y + 3} size={3} fill="var(--select)" shadow="rgba(12,26,20,.55)">
+              HOST
+            </PixelText>
+          </g>
+        );
+      })()}
+
       {plan.stations.map((s) => {
         const x = s.x - s.w / 2;
         const y = s.y - s.h / 2;
@@ -258,7 +300,21 @@ export default function FloorPlan({
           .filter(Boolean)
           .join(', ');
         return (
-          <g key={s.id} role="img" aria-label={label}>
+          <g
+            key={s.id}
+            className="table"
+            role="button"
+            tabIndex={0}
+            aria-label={label}
+            aria-pressed={selectedId === s.id}
+            onClick={() => onSelect(selectedId === s.id ? null : s.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelect(selectedId === s.id ? null : s.id);
+              }
+            }}
+          >
             <polygon points={notched(x, y, s.w, s.h)} fill="var(--counter)" stroke="var(--counter-dk)" strokeWidth="0.5" />
             {/* A station with a backlog runs hot. Amber is a fill, never text (§6.1). */}
             {waiting > 0 && <polygon points={notched(x, y, s.w, s.h)} fill="var(--amber)" opacity="0.42" />}

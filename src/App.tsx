@@ -1,20 +1,22 @@
 // The shell: the three-column layout from "../Sous Restaurant Manager.html", driven by
-// the live simulation and, from day 3, by the mutation path in store.ts.
+// the live simulation and by the mutation path in store.ts.
 //
 // Every button here calls a plain function from mutations.ts through sous.run(). The
 // day-5 WebMCP tools call the same functions the same way, which is why a pin refusal
 // reads identically whether a person or an agent asked (CLAUDE.md #5).
 //
-// Five of the six detail panes and the agent activity rail are day 4.
+// CLICK ROUTING (§1, "one canvas, six panes"): selection stays a single id and the pane
+// is resolved by membership, not by a parallel "kind" field. That is the shape day 5's
+// set_view({ focus }) needs — moving the viewport becomes one setState.
 import { useState } from 'react';
 import type { CSSProperties } from 'react';
-import FloorPlan from './FloorPlan.tsx';
-import { clearTable, fireCourse, seatParty, setPin } from './mutations.ts';
+import FloorPlan, { HOST_ID } from './FloorPlan.tsx';
+import { FloorPane, HostPane, SectionPane, StationPane, TablePane, TicketPane } from './Panes.tsx';
 import type { Result } from './mutations.ts';
 import { serviceOver, stationLoad } from './sim.ts';
 import { useSous } from './store.ts';
 import { CELL_M, fmtClock } from './types.ts';
-import type { MenuCourse, SousState } from './types.ts';
+import type { SousState } from './types.ts';
 
 const MODES = [
   { id: 'design', name: 'Design', blurb: 'Build the room' },
@@ -25,15 +27,6 @@ const MODES = [
 const SPEEDS = [1, 8, 60] as const;
 /** 7:15 PM — the room the demo opens on (§9, 1:15). */
 const PEAK = 135;
-const COURSES: MenuCourse[] = ['drinks', 'apps', 'mains', 'dessert'];
-
-/** Whoever the host stand would seat next: the earliest booking, then the door. */
-function nextWaiting(s: SousState) {
-  const r = s.reservations.filter((x) => x.status === 'arrived').sort((a, b) => a.time - b.time)[0];
-  if (r) return { ref: { reservationId: r.id }, label: `${r.name} (${r.size})` };
-  const w = s.waitlist[0];
-  return w ? { ref: { waitId: w.id }, label: `${w.name} (${w.size})` } : null;
-}
 
 export default function App() {
   const sous = useSous();
@@ -41,42 +34,43 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
-  /** ponytail: one line instead of the agent activity rail, which is day 4 (§5). */
-  const [last, setLast] = useState<Result<unknown> | null>(null);
 
-  const { plan, shift, reservations, waitlist, parties, menu } = state;
+  const { plan, shift, reservations, waitlist, menu } = state;
   const mode = shift.mode;
   // Notes are written during service and surface when their minute comes round (§7).
   const notes = state.notes.filter((n) => n.createdAt <= shift.clock && n.status === 'open');
 
   /** The mutation path. Everything a person clicks goes through here. */
-  const act = (fn: (draft: SousState) => Result<unknown>) => setLast(sous.run(fn));
+  const act = (fn: (draft: SousState) => Result<unknown>) => {
+    sous.run(fn);
+  };
 
   const over = serviceOver(state);
   const seats = plan.tables.reduce((n, t) => n + t.seats, 0);
   // Departed parties stay in state so the night has a history; they are not in the room.
-  const live = parties.filter((p) => p.course !== 'departed');
+  const live = state.parties.filter((p) => p.course !== 'departed');
   const seated = live.reduce((n, p) => n + p.size, 0);
-  const booked = reservations.reduce((n, r) => n + r.size, 0);
   const roomM = (n: number) => +(n * CELL_M).toFixed(1);
-  const sentence = (v: string) => v[0].toUpperCase() + v.slice(1);
 
-  const selected = plan.tables.find((t) => t.id === selectedId);
-  const sectionOf = (id: string) => plan.sections.find((s) => s.tableIds.includes(id));
-  const coversOf = (tableIds: string[]) =>
-    tableIds.reduce((n, id) => n + (plan.tables.find((t) => t.id === id)?.seats ?? 0), 0);
-  const partyAt = (tableId: string) =>
-    live.find((p) => p.tableId === tableId || p.joinedIds.includes(tableId)) ?? null;
+  // One id in, one pane out. Nothing here couples to how ids are spelled.
+  const table = plan.tables.find((t) => t.id === selectedId) ?? null;
+  const station = plan.stations.find((s) => s.id === selectedId) ?? null;
+  const section = plan.sections.find((s) => s.id === selectedId) ?? null;
+  const atHost = selectedId === HOST_ID;
+  const paneName = table
+    ? `TABLE ${table.name}`
+    : station
+      ? station.type === 'pass' ? 'THE PASS' : station.name.toUpperCase()
+      : section
+        ? `${section.name.toUpperCase()} SECTION`
+        : atHost ? 'HOST STAND' : 'FLOOR';
 
   const errors = conflicts.filter((c) => c.severity === 'error');
   const warnings = conflicts.filter((c) => c.severity === 'warn');
   const focusOn = (targetId: string) =>
     setSelectedId(plan.tables.some((t) => t.id === targetId) ? targetId : null);
 
-  const party = selected ? partyAt(selected.id) : null;
-  const waiting = nextWaiting(state);
-  const nextCourse = party ? COURSES.find((c) => !state.tickets.some((t) => t.partyId === party.id && t.course === c)) : undefined;
-  const paneName = selected ? `TABLE ${selected.name}` : 'FLOOR';
+  const paneProps = { sous, act, select: setSelectedId };
 
   return (
     <div className="app">
@@ -99,7 +93,12 @@ export default function App() {
                 key={m.id}
                 className="mode"
                 aria-pressed={mode === m.id}
-                onClick={() => sous.setShift({ mode: m.id })}
+                // THE CLOCK ONLY RUNS IN SERVICE MODE (§8). Run and "→ 7:15" already
+                // force service; this is the other half. Pausing, never resetting —
+                // every timestamp is absolute, so it resumes with nothing stale.
+                onClick={() =>
+                  sous.setShift(m.id === 'design' ? { mode: 'design', running: false } : { mode: 'service' })
+                }
               >
                 <strong>{m.name}</strong>
                 <span>{m.blurb}</span>
@@ -191,7 +190,7 @@ export default function App() {
             <button className="tbtn tbtn--sm" onClick={sous.redo} disabled={!sous.canRedo} title="Redo">
               ↷
             </button>
-            <button className="tbtn" onClick={() => { sous.reset(); setLast(null); }}>
+            <button className="tbtn" onClick={sous.reset}>
               Reset
             </button>
           </div>
@@ -203,7 +202,7 @@ export default function App() {
         >
           <FloorPlan
             plan={plan}
-            parties={parties}
+            parties={state.parties}
             cooking={stationLoad(state)}
             queued={stationLoad(state, 'queued')}
             conflicts={conflicts}
@@ -217,7 +216,9 @@ export default function App() {
             {plan.sections.map((s) => (
               <li key={s.id}>
                 <span className="swatch" style={{ background: `var(${s.color})` }} />
-                {s.name} · {s.serverName}
+                <button className="linkish" onClick={() => setSelectedId(s.id)}>
+                  {s.name} · {s.serverName}
+                </button>
               </li>
             ))}
           </ul>
@@ -252,161 +253,41 @@ export default function App() {
             </button>
           </div>
 
-          {selected ? (
-            <>
-              <div className="block">
-                <button className="back" onClick={() => setSelectedId(null)}>
-                  ← All tables
-                </button>
-                <div className="detailHead">
-                  <div>
-                    <h2>{selected.name}</h2>
-                    <p>
-                      {sectionOf(selected.id)?.name} section · {sectionOf(selected.id)?.serverName}
-                    </p>
-                  </div>
-                  <span className="tag">{party ? sentence(party.course) : 'Open'}</span>
-                </div>
-              </div>
+          <div className="paneBody">
+            {table ? (
+              <TablePane {...paneProps} table={table} />
+            ) : station ? (
+              station.type === 'pass'
+                ? <TicketPane {...paneProps} />
+                : <StationPane {...paneProps} station={station} />
+            ) : section ? (
+              <SectionPane {...paneProps} section={section} />
+            ) : atHost ? (
+              <HostPane {...paneProps} />
+            ) : (
+              <FloorPane {...paneProps} />
+            )}
+          </div>
 
-              <div className="block">
-                <div className="stats">
-                  {[
-                    ['SEATS', String(selected.seats)],
-                    ['SHAPE', sentence(selected.shape)],
-                    ['SIZE', `${roomM(selected.w)} × ${roomM(selected.h)} m`],
-                    ['PLACED BY', sentence(selected.provenance)],
-                    ['PINNED', selected.pinned || party?.pinned ? 'Yes' : 'No'],
-                    ['PARTY', party ? `${party.name} · ${party.size}` : 'None'],
-                  ].map(([k, v]) => (
-                    <div key={k}>
-                      <span className="eyebrow">{k}</span>
-                      <strong>{v}</strong>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* ponytail: four buttons standing in for the six detail panes, which are
-                  day 4. Ceiling — no menu picker, no ticket rail, no reservation list;
-                  these exist to drive every mutation through the same path the tools
-                  will use, and day 4 replaces the whole block. */}
-              <div className="block">
-                <span className="eyebrow">ACTIONS</span>
-                <div className="actions">
-                  <button
-                    className="tbtn"
-                    disabled={!waiting || !!party}
-                    title={waiting ? `Seat ${waiting.label}` : 'Nobody is waiting'}
-                    onClick={() => waiting && act((d) => seatParty(d, { ...waiting.ref, tableIds: [selected.id] }, 'human'))}
-                  >
-                    Seat {waiting ? waiting.label : 'next'}
-                  </button>
-                  <button
-                    className="tbtn"
-                    disabled={!party || !nextCourse}
-                    onClick={() => party && nextCourse && act((d) => fireCourse(d, { partyId: party.id, course: nextCourse }, 'human'))}
-                  >
-                    Fire {nextCourse ?? 'course'}
-                  </button>
-                  <button
-                    className="tbtn"
-                    aria-pressed={selected.pinned || party?.pinned}
-                    onClick={() => act((d) => setPin(d, { targetId: selected.id, pinned: !(selected.pinned || party?.pinned) }, 'human'))}
-                  >
-                    {selected.pinned || party?.pinned ? 'Unpin' : 'Pin'}
-                  </button>
-                  <button
-                    className="tbtn"
-                    disabled={!party}
-                    onClick={() => act((d) => clearTable(d, { tableId: selected.id }, 'human'))}
-                  >
-                    Clear
-                  </button>
-                </div>
-                {last && (
-                  <p className={last.ok ? 'said' : 'said said--no'} role="status">
-                    {last.message}
-                  </p>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="block">
-                <span className="eyebrow">ROOM</span>
-                <div className="stats">
-                  {[
-                    ['TABLES', String(plan.tables.length)],
-                    ['SEATS', String(seats)],
-                    ['BOOKED', `${booked} covers`],
-                    ['RESERVATIONS', String(reservations.length)],
-                    ['MENU', `${menu.length} items`],
-                    ['STATIONS', String(plan.stations.length)],
-                  ].map(([k, v]) => (
-                    <div key={k}>
-                      <span className="eyebrow">{k}</span>
-                      <strong>{v}</strong>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="block">
-                <span className="eyebrow">CONFLICTS</span>
-                {conflicts.length === 0 ? (
-                  <p className="said">
-                    Nothing to fix. The same engine checks the layout and the service board.
-                  </p>
-                ) : (
-                  <ul className="issues">
-                    {conflicts.map((c, i) => (
-                      <li key={`${c.type}-${c.targetId}-${i}`}>
-                        <button className={`chip chip--${c.severity}`} onClick={() => focusOn(c.targetId)}>
-                          {c.type}
-                        </button>
-                        <span>
-                          {c.message}
-                          {c.suggestion ? <em> {c.suggestion}</em> : null}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div className="block">
-                <span className="eyebrow">SECTIONS</span>
-                <ul className="sections">
-                  {plan.sections.map((s) => (
-                    <li key={s.id}>
-                      <span className="swatch" style={{ background: `var(${s.color})` }} />
-                      <span>
-                        {s.name} · {s.serverName}
-                      </span>
-                      <span>
-                        {s.tableIds.length} tables · {coversOf(s.tableIds)} covers
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="block">
-                <span className="eyebrow">SERVICE NOTES</span>
-                <ul className="sections">
-                  {notes.map((n) => (
-                    <li key={n.id}>
-                      <span>
-                        {n.tableId} · from the {n.from}
-                      </span>
-                      <span>{fmtClock(n.createdAt)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </>
-          )}
+          {/* The agent activity rail (§5). One line per mutation, whoever asked, and the
+              refusals are the point — "Refused: T12 pinned" is the 2:40 beat. Pinned
+              below the pane so it stays on screen whichever pane is open. */}
+          <div className="log" role="log" aria-live="polite" aria-label="Activity">
+            <span className="eyebrow">ACTIVITY</span>
+            {sous.log.length === 0 ? (
+              <p className="hint">Nothing yet. Every edit, yours or the agent's, lands here.</p>
+            ) : (
+              <ul>
+                {sous.log.map((l) => (
+                  <li key={l.n} className={l.ok ? undefined : 'refused'}>
+                    <b>{fmtClock(l.at)}</b>
+                    <i className={`by by--${l.by}`}>{l.by}</i>
+                    <span>{l.message}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </aside>
       ) : (
         <aside className="rail rail--right rail--collapsed">

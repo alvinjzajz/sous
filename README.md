@@ -9,12 +9,17 @@ A submission for [the WebMCP Challenge](https://webmcp.devpost.com/). WebMCP let
 page register tools an AI agent can call directly, so the agent and the person are working
 on the *same live page* rather than through an API.
 
-**Status: in progress.** Days 1 to 3 of 6 are complete — domain model, seed scenario,
-floor-plan renderer, the simulation engine, and the mutation layer with its undo stack and
-conflict engine. The six detail panes and the WebMCP tool surface are still to come, so
-**nothing below about tools describes shipped code yet**; it describes what is being built.
-Pins and provenance, though, are real: they are enforced in `src/mutations.ts` today, and
-the tools will call those same functions.
+**Status: in progress.** Days 1 to 4 of 6 are complete — domain model, seed scenario,
+floor-plan renderer, the simulation engine, the mutation layer with its undo stack and
+conflict engine, and the full human interface: six detail panes, click routing, the design
+controls, and the agent activity rail. **The WebMCP tool surface is still to come, so
+nothing below about tools describes shipped code yet**; it describes what is being built.
+
+Everything the tools will do, a person can already do, through the same functions. Every
+button in the app calls a plain function in `src/mutations.ts` via `sous.run(fn, by)`, and
+a tool body on day 5 is `sous.run(fn, 'agent')` and nothing else — which is why a pin
+refusal cannot drift between the two surfaces. Pins, provenance, the design-mode gate and
+the activity rail are all real today.
 
 ## The idea
 
@@ -109,8 +114,9 @@ so the room grows with the window and never scrolls. Accessibility is not traded
 
 ### Accessibility
 
-Tables are keyboard-traversable with visible focus and descriptive labels; agent activity
-is announced through a live region. Aisle clearance is a real domain constraint in the
+Tables, stations and the host stand are keyboard-traversable with visible focus and
+descriptive labels; every edit, human or agent, is announced through a `role="log"` live
+region, refusals included. Aisle clearance is a real domain constraint in the
 conflict engine, checked against the ADA 2010 §403.5.1 accessible-route minimum of 915 mm.
 
 ## Security

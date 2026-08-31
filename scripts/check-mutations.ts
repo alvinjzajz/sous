@@ -7,11 +7,11 @@
 // Plus: every conflict rule can actually fire, so none of them is dead code.
 // Asserts only; no framework.
 import assert from 'node:assert/strict';
-import { computeConflicts } from '../src/conflicts.ts';
+import { computeConflicts, errorsOnly } from '../src/conflicts.ts';
 import {
   addTable, addToWaitlist, applyLayoutTemplate, assignSection, clearTable, fireCourse,
-  moveParty, removeTable, resolveNote, restore, retimeTicket, seatParty, setItem86,
-  setPin, snapshot, swapTicketItem, updateTable,
+  moveParty, protoFor, removeTable, reshape, resolveNote, restore, retimeTicket,
+  seatParty, setItem86, setPin, snapshot, swapTicketItem, updateTable,
 } from '../src/mutations.ts';
 import type { Result } from '../src/mutations.ts';
 import { floorPlan, seedState } from '../src/seed.ts';
@@ -252,6 +252,91 @@ function occupiedTable(s: SousState): string {
   assert.ok(!s.plan.sections.some((x) => x.tableIds.includes(t.id)), 'a removed table is still in a section');
 }
 
+// --- day 4: the design-mode gate and the six quick actions --------------------
+
+{
+  // The gate is a guard in the MUTATION, not a hidden button, so a tool refuses with
+  // the same sentence a person sees (§8, "Design mode's human half"). Note advanceTo
+  // does not set mode — only the store's jumpTo and Run do — so this sets it by hand.
+  const s = peak();
+  s.shift.mode = 'service';
+  const id = emptyTable(s);
+  refused(addTable(s, { seats: 2, anchor: 'centre' }, 'agent'), 'adding a table mid-service', 'design mode');
+  refused(updateTable(s, { tableId: id, seats: 4 }, 'agent'), 'resizing a table mid-service', 'design mode');
+  refused(removeTable(s, { tableId: id }, 'human'), 'removing a table mid-service', 'design mode');
+  refused(applyLayoutTemplate(s, { template: 'bistro' }, 'agent'), 'relaying the room mid-service', 'design mode');
+  assert.equal(s.plan.tables.length, peak().plan.tables.length, 'a refused design edit changed the room');
+
+  // Deliberately NOT gated: server-push is a service-scope conflict rule and
+  // re-sectioning is the only mutation that clears it.
+  const other = s.plan.sections.find((x) => !x.tableIds.includes(id))!;
+  must(assignSection(s, { tableIds: [id], sectionId: other.id }, 'agent'), 're-sectioning during service');
+
+  s.shift.mode = 'design';
+  must(updateTable(s, { tableId: id, seats: 4 }, 'agent'), 'resizing once the room is back in design mode');
+}
+
+{
+  // The four reshape buttons are arguments to updateTable and nothing else, so seats and
+  // footprint cannot disagree — and null is a DISABLED button, never a dead one (§4).
+  const s = seedState();
+  const grid = s.plan.gridSize;
+  const two = s.plan.tables.find((t) => t.shape === 'round' && t.seats === 2)!;
+  const four = s.plan.tables.find((t) => t.shape === 'round' && t.seats === 4)!;
+  const rect = s.plan.tables.find((t) => t.shape === 'rect')!;
+
+  assert.equal(reshape(two, 'rotate', grid), null, 'rotate is live on a round table, where it is a no-op');
+  assert.ok(reshape(rect, 'rotate', grid), 'rotate is disabled on a rect table, where it is the whole point');
+  assert.equal(reshape(two, 'shrink', grid), null, 'shrink ran off the bottom of the seat range');
+  assert.equal(reshape({ ...rect, seats: 12 }, 'grow', grid), null, 'grow ran off the top of the seat range');
+
+  const wide = reshape(two, 'widen', grid);
+  assert.ok(wide && 'shape' in wide, 'widen produced nothing');
+  assert.equal(wide.shape, 'rect', 'widening a round table left it round, which is just grow');
+  assert.equal(wide.w, two.w + grid, 'widen did not step by the snap grid');
+
+  const grown = reshape(two, 'grow', grid);
+  assert.ok(grown && 'seats' in grown, 'grow produced nothing for a two-top');
+  assert.equal(grown.seats, two.seats + 2, 'grow did not add two seats');
+  assert.deepEqual(
+    { w: grown.w, h: grown.h, shape: grown.shape },
+    protoFor(two.seats + 2),
+    'grow and protoFor disagree about the footprint, so seats and geometry can drift',
+  );
+
+  // And the arguments survive the mutation they were computed for.
+  must(updateTable(s, grown, 'human'), 'growing a two-top to a four-top');
+  assert.equal(two.seats, 4, 'the grow did not take');
+  assert.deepEqual([two.w, two.h], [protoFor(4).w, protoFor(4).h], 'the grown table kept its old footprint');
+
+  // Grow is REFUSED on most of the seeded room, exactly as rotate is, and that is
+  // correct rather than broken: the room is packed to 915mm aisles, so a four-top going
+  // to six eats the window aisle. The refusal names the nearest clear spot, so the pane
+  // surfaces that sentence instead of treating the button as dead (§4).
+  const big = reshape(four, 'grow', grid);
+  assert.ok(big && 'seats' in big, 'grow produced nothing for a four-top');
+  refused(updateTable(s, big, 'human'), 'growing a four-top into the window aisle', 'nearest clear spot');
+}
+
+{
+  // Duplicate is addTable with `near`, which routes through findSpot. NEVER a raw offset:
+  // a 1-cell gap is 125mm against a 915mm minimum, so an offset copy is born in conflict.
+  const s = seedState();
+  const src = s.plan.tables.find((t) => t.name === 'T1')!;
+  const before = errorsOnly(computeConflicts(s, 'design')).length;
+  const copy = must(addTable(s, { seats: src.seats, shape: src.shape, near: { x: src.x, y: src.y } }, 'human'), 'duplicating a table');
+  assert.ok(copy, 'duplicate returned no table');
+  assert.ok(copy.x !== src.x || copy.y !== src.y, 'the duplicate landed on top of its original');
+  assert.equal(
+    errorsOnly(computeConflicts(s, 'design')).length,
+    before,
+    'the duplicate raised a layout error, so it was placed by offset rather than by findSpot',
+  );
+
+  // An explicit coordinate still REFUSES rather than quietly relocating (§4).
+  refused(addTable(s, { seats: 2, x: src.x, y: src.y }, 'agent'), 'placing a table on top of another', 'nearest clear spot');
+}
+
 // --- apply_layout_template: the room the demo opens on ------------------------
 
 {
@@ -471,5 +556,5 @@ for (const template of ['banquet', 'communal'] as const) {
 console.log(
   `mutations ok — 15 mutations, ${new Set(fired).size} conflict rules all firing, ` +
     'refusals never write, pins refuse both actors, only humans unpin, ' +
-    'undo rewinds the board and not the clock.',
+    'undo rewinds the board and not the clock. Design edits refuse mid-service, and the six quick actions compute legal arguments.',
 );

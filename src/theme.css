@@ -95,7 +95,7 @@ button { font-family: inherit; }
 }
 
 .rail--left { width: 186px; border-right: 1px solid var(--line); overflow-y: auto; }
-.rail--right { width: 344px; border-left: 1px solid var(--line); overflow-y: auto; }
+.rail--right { width: 344px; border-left: 1px solid var(--line); overflow: hidden; }
 .rail--collapsed {
   width: 48px;
   align-items: center;
@@ -433,3 +433,109 @@ button { font-family: inherit; }
 .issues { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .issues li { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; }
 .issues em { color: var(--ink-mute); font-style: normal; }
+
+
+/* Day 4: the panes, the forms and the agent activity rail ------------------- */
+
+/* The right rail is three rows now — head, the pane (scrolls), the activity rail
+   (pinned). The rail stays on screen whichever pane is open, which is what makes a
+   refusal legible in the video (§5). */
+.paneBody { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+
+.hint { font-size: 11.5px; color: var(--ink-mute); }
+
+/* Forms. Plain <form> + FormData, so no pane holds local state. */
+.field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.field > .eyebrow { flex: none; }
+.field input,
+.field select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1.5px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.field input[type='number'] { flex: 0 0 62px; font-family: var(--pixel); font-size: 10px; }
+.field input:focus-visible,
+.field select:focus-visible { outline: 2px solid var(--sage-dk); outline-offset: 1px; }
+.field .tbtn { flex: none; }
+
+.note { padding-bottom: 12px; }
+.note + .note { border-top: 1px solid var(--line); padding-top: 12px; }
+.note p { margin: 0; font-size: 12.5px; line-height: 1.55; }
+
+.ticketHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+/* A row that ends in a button, not a label: push the button to the rail edge. */
+.sections li .tbtn { margin-left: auto; }
+
+/* Destructive actions read as text, never as a red fill — §6.1 keeps --alert for ink. */
+.tbtn--no { color: var(--alert); }
+
+.linkish {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.linkish:hover { color: var(--sage-dk); }
+
+/* The agent activity rail (§5): role="log", newest first, refusals loudest. */
+.log {
+  flex: 0 0 auto;
+  max-height: 34%;
+  overflow-y: auto;
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--footer);
+}
+.log ul { display: flex; flex-direction: column; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.log li {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.log b {
+  font-family: var(--pixel);
+  font-size: 8px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+/* Provenance is never colour-only (§6.1): the agent's lines carry the same dashed
+   --select ring its tables wear, so the distinction survives greyscale. */
+.by {
+  font-family: var(--pixel);
+  font-size: 7.5px;
+  font-style: normal;
+  letter-spacing: 0.5px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: var(--ink-mute);
+  border: 1px solid var(--line);
+}
+.by--agent { border-style: dashed; border-color: var(--clay); color: var(--clay); }
+/* The most convincing thing on screen. */
+.log .refused span { color: var(--alert); font-weight: 600; }
+.log .refused { border-left: 2px solid var(--alert); margin-left: -8px; padding-left: 6px; }

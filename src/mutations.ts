@@ -70,6 +70,17 @@ export const restore = (snap: Snapshot, now: SousState): SousState => ({
 
 const liveParties = (s: SousState) => s.parties.filter((p) => p.course !== 'departed');
 
+/**
+ * Furniture moves before service, not during it (SOUS_PLAN.md §8, "Design mode's human
+ * half"). One guard, four mutations, so a button and a tool refuse with the same
+ * sentence. `assignSection` is deliberately NOT gated: `server-push` is a service-scope
+ * conflict and re-sectioning is the only mutation that clears it.
+ */
+const designOnly = (s: SousState) =>
+  s.shift.mode === 'service'
+    ? no('The shift is in service. Switch to design mode before moving furniture.')
+    : null;
+
 /** The party sitting at a table, counting tables pushed together. */
 const partyAt = (s: SousState, tableId: string) => tablesHeld(s).get(tableId) ?? null;
 
@@ -151,6 +162,36 @@ export function protoFor(seats: number): { w: number; h: number; shape: Table['s
   return { w: 8 + 4 * Math.ceil(seats / 2), h: 10, shape: 'rect' };
 }
 
+export type Reshape = 'rotate' | 'grow' | 'shrink' | 'widen';
+
+/**
+ * The four reshape buttons (§4), expressed as arguments to updateTable — so they inherit
+ * pin refusal, the aisle rules and the "nearest clear spot" hint for free rather than
+ * growing a second geometry path. Duplicate and Delete are addTable and removeTable
+ * directly and need nothing here.
+ *
+ * Returns null when the button should be DISABLED rather than shipped dead: rotate is a
+ * no-op on a round table (w === h by invariant), and 1 and 12 are the seat-count ends.
+ * Grow and Shrink step through protoFor, so seats and footprint can never disagree.
+ */
+export function reshape(t: Table, kind: Reshape, grid: number) {
+  switch (kind) {
+    case 'rotate':
+      return t.w === t.h ? null : { tableId: t.id, w: t.h, h: t.w };
+    case 'grow':
+    case 'shrink': {
+      const seats = t.seats + (kind === 'grow' ? 2 : -2);
+      if (seats < 1 || seats > 12) return null;
+      const p = protoFor(seats);
+      return { tableId: t.id, seats, w: p.w, h: p.h, shape: p.shape };
+    }
+    case 'widen':
+      // updateTable forces h === w on a round table, so widening one would just grow it.
+      // Widening is the move that turns a round two-top into a rect; say so explicitly.
+      return { tableId: t.id, w: t.w + grid, shape: 'rect' as const };
+  }
+}
+
 /** Semantic anchors, so a model never has to guess a coordinate (§4). */
 export const ANCHORS = [
   'north-wall', 'south-wall', 'east-wall', 'west-wall', 'by-window',
@@ -224,9 +265,11 @@ const nextTableName = (s: SousState) => {
 
 export function addTable(
   s: SousState,
-  a: { seats: number; name?: string; x?: number; y?: number; anchor?: Anchor; sectionId?: string; shape?: Table['shape'] },
+  a: { seats: number; name?: string; x?: number; y?: number; near?: { x: number; y: number }; anchor?: Anchor; sectionId?: string; shape?: Table['shape'] },
   by: Actor,
 ): Result<Table> {
+  const shut = designOnly(s);
+  if (shut) return shut;
   const seats = Math.round(a.seats);
   if (!Number.isFinite(seats) || seats < 1 || seats > 12) {
     return no(`A table seats 1 to 12; ${a.seats} is not a table.`);
@@ -238,9 +281,14 @@ export function addTable(
   if (findTable(s, name)) return no(`There is already a table called ${name}.`);
 
   const placed = a.x !== undefined && a.y !== undefined;
+  // `x`/`y` is an explicit placement and is REFUSED if it does not fit (§4's coordinate
+  // mitigation). `near` is a hint: it goes straight to findSpot, which is what Duplicate
+  // wants — never place by raw offset, a 1-cell gap is 125mm against a 915mm minimum.
   const near = placed
     ? { x: Math.round(a.x as number), y: Math.round(a.y as number) }
-    : anchorPoint(s, a.anchor ?? 'centre');
+    : a.near
+      ? { x: Math.round(a.near.x), y: Math.round(a.near.y) }
+      : anchorPoint(s, a.anchor ?? 'centre');
   const table: Table = {
     id: `t-${Date.now().toString(36)}-${s.plan.tables.length}`,
     name, x: near.x, y: near.y, ...size, shape, seats,
@@ -274,6 +322,8 @@ export function updateTable(
   a: { tableId: string; name?: string; x?: number; y?: number; w?: number; h?: number; seats?: number; shape?: Table['shape']; sectionId?: string },
   by: Actor,
 ): Result<Table> {
+  const shut = designOnly(s);
+  if (shut) return shut;
   const t = findTable(s, a.tableId);
   if (!t) return no(`There is no table ${a.tableId}.`);
   if (t.pinned) return no(`${t.name} is pinned. Unpin it first, or leave it where it is.`);
@@ -324,6 +374,8 @@ export function updateTable(
 }
 
 export function removeTable(s: SousState, a: { tableId: string }, _by: Actor): Result<Table> {
+  const shut = designOnly(s);
+  if (shut) return shut;
   const t = findTable(s, a.tableId);
   if (!t) return no(`There is no table ${a.tableId}.`);
   if (t.pinned) return no(`${t.name} is pinned. Unpin it first if you really mean to take it out.`);
@@ -391,6 +443,8 @@ export function applyLayoutTemplate(
   a: { template: 'bistro' | 'banquet' | 'communal'; covers?: number },
   by: Actor,
 ): Result<{ tables: number; covers: number }> {
+  const shut = designOnly(s);
+  if (shut) return shut;
   if (liveParties(s).length) return no('There are people at tables. Lay the room out before service, not during it.');
   const covers = Math.round(a.covers ?? 60);
   if (covers < 8 || covers > 200) return no(`Ask for 8 to 200 covers; ${a.covers} is not a dining room.`);

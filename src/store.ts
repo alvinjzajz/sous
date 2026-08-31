@@ -15,13 +15,29 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { computeConflicts } from './conflicts.ts';
 import { restore, snapshot } from './mutations.ts';
-import type { Result, Snapshot } from './mutations.ts';
+import type { Actor, Result, Snapshot } from './mutations.ts';
 import { seedState } from './seed.ts';
 import { advanceTo, tick } from './sim.ts';
 import type { Conflict, Shift, SousState } from './types.ts';
 
 /** Deep enough to reflow the whole room and take it back; short enough to stay cheap. */
 const UNDO_CAP = 50;
+/** The activity rail scrolls; nobody reads past this. */
+const LOG_CAP = 50;
+
+/**
+ * One line per mutation, for the agent activity rail (§5). Deliberately NOT part of
+ * SousState: Snapshot is Omit<SousState,'shift'>, so a log inside state would be
+ * snapshotted and undo would erase the very lines proving what happened.
+ */
+export interface LogLine {
+  n: number;
+  /** Shift-minute the call landed. */
+  at: number;
+  by: Actor;
+  ok: boolean;
+  message: string;
+}
 
 // ponytail: undo is a whole-state snapshot, so it rewinds the board to the minute the
 // edit was made — every tick since goes with it. Ceiling: undo an edit an hour of shift
@@ -32,8 +48,13 @@ const UNDO_CAP = 50;
 export interface Sous {
   state: SousState;
   conflicts: Conflict[];
-  /** The ONLY path that pushes undo. Discards the draft whole if the mutation refuses. */
-  run: <T>(fn: (draft: SousState) => Result<T>) => Result<T>;
+  /**
+   * The ONLY path that pushes undo. Discards the draft whole if the mutation refuses.
+   * `by` stamps the activity rail; the day-5 tool wrapper passes 'agent' and gets its
+   * lines — including its refusals — with no extra wiring.
+   */
+  run: <T>(fn: (draft: SousState) => Result<T>, by?: Actor) => Result<T>;
+  log: LogLine[];
   setShift: (patch: Partial<Shift>) => void;
   jumpTo: (minute: number) => void;
   reset: () => void;
@@ -51,6 +72,11 @@ export function useSous(): Sous {
   const past = useRef<Snapshot[]>([]);
   const future = useRef<Snapshot[]>([]);
   const [depth, setDepth] = useState({ past: 0, future: 0 });
+  const [log, setLog] = useState<LogLine[]>([]);
+
+  const say = useCallback((by: Actor, ok: boolean, message: string) => {
+    setLog((l) => [{ n: (l[0]?.n ?? 0) + 1, at: ref.current.shift.clock, by, ok, message }, ...l].slice(0, LOG_CAP));
+  }, []);
 
   useEffect(() => {
     ref.current = state;
@@ -70,10 +96,11 @@ export function useSous(): Sous {
   }, [state.shift.running, state.shift.speed, commit]);
 
   const run = useCallback<Sous['run']>(
-    (fn) => {
+    (fn, by = 'human') => {
       const before = snapshot(ref.current);
       const draft = structuredClone(ref.current);
       const result = fn(draft);
+      say(by, result.ok, result.message);
       if (!result.ok) return result; // nothing committed, nothing snapshotted
       past.current = [...past.current, before].slice(-UNDO_CAP);
       future.current = [];
@@ -81,19 +108,20 @@ export function useSous(): Sous {
       setDepth({ past: past.current.length, future: 0 });
       return result;
     },
-    [commit],
+    [commit, say],
   );
 
   const step = useCallback(
     (from: RefObject<Snapshot[]>, to: RefObject<Snapshot[]>) => {
       const target = from.current.pop();
       if (!target) return false;
+      say('human', true, from === past ? 'Undid the last edit.' : 'Redid it.');
       to.current.push(snapshot(ref.current));
       commit(restore(target, ref.current));
       setDepth({ past: past.current.length, future: future.current.length });
       return true;
     },
-    [commit],
+    [commit, say],
   );
 
   const undo = useCallback(() => step(past, future), [step]);
@@ -118,6 +146,7 @@ export function useSous(): Sous {
     past.current = [];
     future.current = [];
     setDepth({ past: 0, future: 0 });
+    setLog([]);
     commit(seedState());
   }, [commit]);
 
@@ -127,7 +156,7 @@ export function useSous(): Sous {
   );
 
   return {
-    state, conflicts, run, setShift, jumpTo, reset, undo, redo,
+    state, conflicts, log, run, setShift, jumpTo, reset, undo, redo,
     canUndo: depth.past > 0,
     canRedo: depth.future > 0,
     ref,
