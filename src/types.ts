@@ -97,6 +97,13 @@ export interface Reservation {
   time: number;
   status: 'expected' | 'arrived' | 'seated' | 'no-show';
   notes: string;
+  /**
+   * The table this booking is held for, if a host has assigned one. Assigning is not
+   * seating: the party is not in the room yet and the table may still be occupied by
+   * somebody else. It is a promise about where they will go, which is why the house
+   * will not seat them anywhere else once it is made.
+   */
+  tableId?: string;
 }
 
 export interface WaitEntry {

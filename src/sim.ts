@@ -347,7 +347,13 @@ function seatWaiting(s: SousState): void {
     .sort((a, b) => a.time - b.time);
   for (const r of arrived) {
     if (s.shift.clock < r.time + hostLag(r.size)) continue;
-    const t = pickTable(s, r.size);
+    // A HELD TABLE IS A PROMISE. If a host assigned one, the house waits for it rather
+    // than quietly seating them somewhere else — the auto-behaviours are cooperative,
+    // not authoritative (SOUS_PLAN.md §0). If it never frees, `reservation-waiting`
+    // fires and a person deals with it, which is the right place for that decision.
+    const held = r.tableId ? s.plan.tables.find((t) => t.id === r.tableId) : null;
+    const t = held ? (freeTables(s).some((f) => f.id === held.id) && held.seats >= r.size ? held : null)
+      : pickTable(s, r.size);
     if (!t) continue; // continue, not break: a two-top seats while a six waits
     seatAt(s, t, { id: `p-${r.id}`, name: r.name, size: r.size, notes: r.notes });
     r.status = 'seated';

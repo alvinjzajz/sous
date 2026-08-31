@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { computeConflicts, conflictKey, errorsOnly, rawConflicts } from '../src/conflicts.ts';
 import {
-  addTable, addToWaitlist, applyLayoutTemplate, applySavedLayout, assignSection,
+  addTable, addToWaitlist, applyLayoutTemplate, applySavedLayout, assignReservation, assignSection,
   clearTable, findSpot, fireCourse, moveParty, overrideConflict, removeTable, reshape,
   resolveNote, restore, restoreConflict, retimeTicket, seatParty, setItem86, setPin,
   snapshot, swapTicketItem, updateTable,
@@ -341,6 +341,60 @@ function occupiedTable(s: SousState): string {
     errorsOnly(computeConflicts(s, 'design')).some((c) => c.type === 'overlap'),
     'stacking two tables raised no overlap conflict',
   );
+}
+
+// --- holding a table for a booking --------------------------------------------
+
+{
+  // ASSIGNING IS NOT SEATING. The party is not in the room yet and the table may still
+  // have somebody at it, so a hold deliberately does not require a free table.
+  const s = seedState();
+  const r = s.reservations.find((x) => x.size === 2)!;
+  const small = s.plan.tables.find((t) => t.seats === 2)!;
+  const big = s.plan.tables.find((t) => t.seats >= 6)!;
+
+  must(assignReservation(s, { reservationId: r.id, tableId: small.name }, 'human'), 'holding a table for a booking');
+  assert.equal(r.tableId, small.id, 'the hold did not take');
+
+  // A second booking cannot take a table that is already held.
+  const other = s.reservations.find((x) => x.id !== r.id && x.size <= small.seats)!;
+  refused(assignReservation(s, { reservationId: other.id, tableId: small.id }, 'agent'), 'double-booking one table', 'already held');
+  // ...and a party cannot be held for a table it does not fit.
+  const six = s.reservations.find((x) => x.size === 6)!;
+  refused(assignReservation(s, { reservationId: six.id, tableId: small.id }, 'agent'), 'holding a two-top for a six', 'seats');
+  must(assignReservation(s, { reservationId: six.id, tableId: big.id }, 'agent'), 'holding a six-top for a six');
+
+  // Letting it go frees the table for anyone else.
+  must(assignReservation(s, { reservationId: r.id }, 'human'), 'letting a held table go');
+  assert.equal(r.tableId, undefined, 'the hold did not clear');
+  refused(assignReservation(s, { reservationId: r.id }, 'human'), 'releasing a hold that is not there', 'not held');
+  must(assignReservation(s, { reservationId: other.id, tableId: small.id }, 'human'), 'holding the freed table for someone else');
+}
+
+{
+  // A hold is spent when they sit down, and it does not survive as a stale pointer.
+  const s = seedState();
+  const r = s.reservations[0];
+  const t = s.plan.tables.find((x) => x.seats >= r.size)!;
+  must(assignReservation(s, { reservationId: r.id, tableId: t.id }, 'human'), 'holding a table');
+  must(seatParty(s, { reservationId: r.id, tableIds: [t.id] }, 'human'), 'seating the booking it was held for');
+  assert.equal(r.status, 'seated', 'the booking was not marked seated');
+  assert.equal(r.tableId, undefined, 'a spent hold was left pointing at a table');
+}
+
+{
+  // THE HOUSE HONOURS A HOLD. Auto-seating is cooperative, not authoritative: if a host
+  // said where a booking goes, the simulation waits for that table rather than quietly
+  // seating them somewhere else (SOUS_PLAN.md §0).
+  const s = seedState();
+  const r = [...s.reservations].sort((a, b) => a.time - b.time)[0];
+  const held = s.plan.tables.find((t) => t.seats >= r.size && t.name === 'T16')!;
+  must(assignReservation(s, { reservationId: r.id, tableId: held.id }, 'human'), 'holding T16');
+
+  const later = advanceTo(s, 135);
+  const party = later.parties.find((p) => p.name === r.name);
+  assert.ok(party, `${r.name} was never seated at all`);
+  assert.equal(party.tableId, held.id, `the house seated ${r.name} somewhere other than the table held for them`);
 }
 
 // --- overriding a conflict ----------------------------------------------------
@@ -711,7 +765,7 @@ for (const template of ['banquet', 'communal'] as const) {
 }
 
 console.log(
-  `mutations ok — 18 mutations, ${new Set(fired).size} conflict rules all firing, ` +
+  `mutations ok — 19 mutations, ${new Set(fired).size} conflict rules all firing, ` +
     'refusals never write, pins refuse both actors, only humans unpin or override, ' +
     'undo rewinds the board and not the clock. Design edits refuse mid-service, placement reports instead of refusing, and only a table that is clear can be pinned.',
 );

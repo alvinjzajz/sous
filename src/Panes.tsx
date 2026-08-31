@@ -11,9 +11,9 @@
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
-  addTable, addToWaitlist, applySavedLayout, assignSection, clearTable, fireCourse,
-  overrideConflict, removeTable, reshape, resolveNote, restoreConflict, retimeTicket,
-  seatParty, setPin, swapTicketItem, updateTable,
+  addTable, addToWaitlist, applySavedLayout, assignReservation, assignSection, clearTable,
+  fireCourse, overrideConflict, removeTable, reshape, resolveNote, restoreConflict,
+  retimeTicket, seatParty, setPin, swapTicketItem, updateTable,
 } from './mutations.ts';
 import { conflictKey } from './conflicts.ts';
 import { deleteLayout, listLayouts, readLayout, saveLayout } from './layouts.ts';
@@ -22,7 +22,7 @@ import { pickTable } from './sim.ts';
 import type { Sous } from './store.ts';
 import { CELL_M, fmtClock } from './types.ts';
 import type {
-  Conflict, MenuCourse, Section, SousState, Station, Table, WaitEntry,
+  Conflict, MenuCourse, Reservation, Section, SousState, Station, Table, WaitEntry,
 } from './types.ts';
 
 export interface PaneProps {
@@ -127,16 +127,54 @@ function bumpSeats(d: SousState, tableId: string, by: number) {
   return updateTable(d, { tableId, seats: t.seats + by }, 'human');
 }
 
+/** Bookings still to come: not sat, not written off. Earliest first. */
+const openBookings = (s: SousState) =>
+  s.reservations
+    .filter((r) => r.status !== 'seated' && r.status !== 'no-show')
+    .sort((a, b) => a.time - b.time);
+
 /**
- * The next booking still to be sat that FITS THIS TABLE — the mockup's "NEXT ON THIS
- * TABLE". Filtered by capacity because the pane is about one table: offering a six-top
- * the next four-top on the book is just a disabled button and a question. The whole
- * book, capacity or not, is the host stand's pane.
+ * Tonight's book. Same card as the waitlist, because a host reads them the same way —
+ * who, how many, when — and the only difference is the verb on the button.
  */
-function nextBooking(s: SousState, seats: number) {
-  return s.reservations
-    .filter((r) => r.status !== 'seated' && r.status !== 'no-show' && r.size <= seats)
-    .sort((a, b) => a.time - b.time)[0] ?? null;
+export function BookingRows({
+  entries, clock, action, nameOf, brief = false,
+}: {
+  entries: Reservation[];
+  clock: number;
+  /** Assign in the list, Seat once one is held. Omitted in the left rail. */
+  action?: (r: Reservation) => { label: string; onClick: () => void; disabled: boolean; title: string };
+  /** Resolves a held table id to its name, so a booking shows where it is going. */
+  nameOf?: (id: string) => string;
+  brief?: boolean;
+}) {
+  if (!entries.length) return <p className="hint">Nothing in the book.</p>;
+  return (
+    <ul className="waits">
+      {entries.map((r) => {
+        const act = action?.(r);
+        const late = r.status === 'arrived' ? clock - r.time : 0;
+        return (
+          <li key={r.id} className={late > 0 ? 'wait--over' : undefined}>
+            <div>
+              <strong>{r.name} · {r.size}</strong>
+              <span>
+                {fmtClock(r.time)} · {r.status}
+                {late > 0 ? ` · standing ${late}m` : ''}
+                {r.tableId ? ` · held for ${nameOf?.(r.tableId) ?? r.tableId}` : ''}
+                {!brief && r.notes ? ` · ${r.notes}` : ''}
+              </span>
+            </div>
+            {act && (
+              <button className="tbtn tbtn--seat" onClick={act.onClick} disabled={act.disabled} title={act.title}>
+                {act.label}
+              </button>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 /**
@@ -191,7 +229,13 @@ export function TablePane({ sous, act, select, table }: PaneProps & { table: Tab
   const section = plan.sections.find((s) => s.tableIds.includes(table.id));
   const design = shift.mode === 'design';
   const pinned = table.pinned || !!party?.pinned;
-  const booking = nextBooking(sous.state, table.seats);
+  // Two states, as asked for: the book, with an Assign on each row; or the one booking
+  // this table is being held for, with a Seat. Assigning is a promise about where they
+  // will go; seating is what happens when they walk in.
+  const held = sous.state.reservations.find(
+    (r) => r.tableId === table.id && r.status !== 'seated' && r.status !== 'no-show',
+  ) ?? null;
+  const bookable = openBookings(sous.state).filter((r) => !r.tableId);
   const seatHere = (ref: { reservationId?: string; waitId?: string }) =>
     act((d) => seatParty(d, { ...ref, tableIds: [table.id] }, 'human'));
   const mine = party ? tickets.filter((t) => t.partyId === party.id) : [];
@@ -370,23 +414,39 @@ export function TablePane({ sous, act, select, table }: PaneProps & { table: Tab
       {!design && !party && (
         <>
           <div className="block">
-            <span className="eyebrow">NEXT ON THIS TABLE</span>
-            {booking ? (
-              <div className="bookingCard">
-                <div>
-                  <strong>{booking.name} · {booking.size}</strong>
-                  <span>{fmtClock(booking.time)}{booking.notes ? ` · ${booking.notes}` : ''}</span>
-                </div>
+            <span className="eyebrow">RESERVED</span>
+            {held ? (
+              <>
+                <BookingRows
+                  entries={[held]}
+                  clock={shift.clock}
+                  action={() => ({
+                    label: 'Seat',
+                    disabled: false,
+                    title: `Seat ${held.name} at ${table.name}`,
+                    onClick: () => seatHere({ reservationId: held.id }),
+                  })}
+                />
                 <button
-                  className="tbtn tbtn--seat"
-                  title={`Seat ${booking.name} at ${table.name}`}
-                  onClick={() => seatHere({ reservationId: booking.id })}
+                  className="back"
+                  onClick={() => act((d) => assignReservation(d, { reservationId: held.id }, 'human'))}
                 >
-                  Seat
+                  ← Let {table.name} go
                 </button>
-              </div>
+              </>
             ) : (
-              <p className="hint">Nothing left in the book that fits {table.seats} seats.</p>
+              <BookingRows
+                entries={bookable}
+                clock={shift.clock}
+                action={(r) => ({
+                  label: 'Assign',
+                  disabled: r.size > table.seats,
+                  title: r.size > table.seats
+                    ? `${table.name} seats ${table.seats}; ${r.name} is ${r.size}.`
+                    : `Hold ${table.name} for ${r.name}`,
+                  onClick: () => act((d) => assignReservation(d, { reservationId: r.id, tableId: table.id }, 'human')),
+                })}
+              />
             )}
           </div>
 
@@ -653,9 +713,12 @@ export function HostPane({ sous, act, select }: PaneProps) {
   const { state } = sous;
   const { clock } = state.shift;
   const book = [...state.reservations].sort((a, b) => a.time - b.time);
-  const seatSomeone = (ref: { reservationId?: string; waitId?: string }, size: number) =>
+  // A held table is where they go. Otherwise the house's own chooser picks, so "seat
+  // them somewhere sensible" is one judgement wherever it is made (sim.ts pickTable).
+  const seatSomeone = (ref: { reservationId?: string; waitId?: string }, size: number, heldId?: string) =>
     act((d) => {
-      const t = pickTable(d, size);
+      const held = heldId ? d.plan.tables.find((t) => t.id === heldId) : null;
+      const t = held ?? pickTable(d, size);
       return t
         ? seatParty(d, { ...ref, tableIds: [t.id] }, 'human')
         : refuse(`Nothing free seats ${size} right now. Quote a wait, or combine two tables.`);
@@ -715,19 +778,21 @@ export function HostPane({ sous, act, select }: PaneProps) {
 
       <div className="block">
         <span className="eyebrow">RESERVATIONS</span>
-        <ul className="sections">
-          {book.map((r) => (
-            <li key={r.id}>
-              <span>{fmtClock(r.time)} · {r.name} · {r.size}</span>
-              <span>{r.status}</span>
-              {r.status !== 'seated' && r.status !== 'no-show' && (
-                <button className="tbtn tbtn--sm" onClick={() => seatSomeone({ reservationId: r.id }, r.size)}>
-                  Seat
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <BookingRows
+          entries={book}
+          clock={clock}
+          nameOf={(id) => state.plan.tables.find((t) => t.id === id)?.name ?? id}
+          action={(r) =>
+            r.status === 'seated' || r.status === 'no-show'
+              ? { label: 'Seated', disabled: true, title: `${r.name} is down`, onClick: () => {} }
+              : {
+                  label: 'Seat',
+                  disabled: false,
+                  title: r.tableId ? `Seat ${r.name} at their held table` : `Seat ${r.name}`,
+                  onClick: () => seatSomeone({ reservationId: r.id }, r.size, r.tableId),
+                }
+          }
+        />
       </div>
     </>
   );

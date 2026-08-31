@@ -20,7 +20,8 @@ import { floorPlan } from './seed.ts';
 import { RUNNER_MIN, fireTicket, freeTables, quoteWait, seatAt, tablesHeld } from './sim.ts';
 import { MIN_AISLE_CELLS, fmtClock } from './types.ts';
 import type {
-  Conflict, FloorPlan, MenuCourse, MenuItem, Party, SousState, Table, Ticket, TicketItem,
+  Conflict, FloorPlan, MenuCourse, MenuItem, Party, Reservation, SousState, Table, Ticket,
+  TicketItem,
 } from './types.ts';
 
 export type Actor = 'human' | 'agent';
@@ -672,6 +673,51 @@ function suggestSeating(s: SousState, size: number): string {
   return 'Nothing free fits them — quote_wait and add_to_waitlist.';
 }
 
+/**
+ * Hold a table for a booking, or let it go again (pass no `tableId` to unassign).
+ *
+ * ASSIGNING IS NOT SEATING. The party is not in the room yet and the table may still
+ * have somebody at it, so this deliberately does not care whether it is free — a 6:00
+ * two-top and an 8:30 four-top are the same table twice in one night. What it does buy
+ * is a promise: once a booking is assigned, `seatWaiting` will only ever sit them there,
+ * so the house cannot quietly undo the host's plan.
+ */
+export function assignReservation(
+  s: SousState,
+  a: { reservationId: string; tableId?: string },
+  _by: Actor,
+): Result<Reservation> {
+  const key = a.reservationId.trim().toLowerCase();
+  const r = s.reservations.find(
+    (x) => x.id.toLowerCase() === key || x.name.toLowerCase() === key,
+  );
+  if (!r) return no(`There is no booking ${a.reservationId}.`);
+  if (r.status === 'seated') return no(`${r.name} is already sitting down.`);
+  if (r.status === 'no-show') return no(`${r.name} was marked a no-show.`);
+
+  if (!a.tableId) {
+    if (!r.tableId) return no(`${r.name} is not held for any table.`);
+    const was = findTable(s, r.tableId)?.name ?? r.tableId;
+    delete r.tableId;
+    return ok(`${r.name} is off ${was}; any table will do now.`, r);
+  }
+
+  const t = findTable(s, a.tableId);
+  if (!t) return no(`There is no table ${a.tableId}.`);
+  if (r.size > t.seats) {
+    return no(`${t.name} seats ${t.seats}; ${r.name} is ${r.size}. Pick a bigger table, or push two together.`);
+  }
+  const taken = s.reservations.find(
+    (x) => x.id !== r.id && x.tableId === t.id && x.status !== 'seated' && x.status !== 'no-show',
+  );
+  if (taken) {
+    return no(`${t.name} is already held for ${taken.name} at ${fmtClock(taken.time)}. Let them go first.`);
+  }
+
+  r.tableId = t.id;
+  return ok(`${t.name} is held for ${r.name}, ${r.size}, at ${fmtClock(r.time)}.`, r);
+}
+
 export function seatParty(
   s: SousState,
   a: { tableIds: string[]; reservationId?: string; waitId?: string; name?: string; size?: number },
@@ -702,7 +748,10 @@ export function seatParty(
     joinedIds: joined.map((t) => t.id),
     provenance: by,
   });
-  if (res) res.status = 'seated';
+  if (res) {
+    res.status = 'seated';
+    delete res.tableId; // the hold is spent; where they actually sat is the party's job
+  }
   if (wait) s.waitlist = s.waitlist.filter((w) => w.id !== wait.id);
 
   const where = check.tables.map((t) => t.name).join('+');

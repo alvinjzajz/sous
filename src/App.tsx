@@ -12,7 +12,8 @@ import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import FloorPlan, { HOST_ID } from './FloorPlan.tsx';
 import {
-  FloorPane, HostPane, SectionPane, StationPane, TablePane, TicketPane, WaitRows,
+  BookingRows, FloorPane, HostPane, SectionPane, StationPane, TablePane, TicketPane,
+  WaitRows,
 } from './Panes.tsx';
 import { updateTable } from './mutations.ts';
 import type { Result } from './mutations.ts';
@@ -111,7 +112,19 @@ export default function App() {
 
           <ul className="nav">
             <li><span>Tables</span><b>{plan.tables.length}</b></li>
-            <li><span>Reservations</span><b>{reservations.length}</b></li>
+            <li className="navOpen">
+              <details>
+                <summary>
+                  <span>Reservations</span>
+                  <b>{reservations.length}</b>
+                </summary>
+                <BookingRows
+                  entries={[...reservations].sort((a, b) => a.time - b.time)}
+                  clock={shift.clock}
+                  brief
+                />
+              </details>
+            </li>
             {/* The door, on the manager's side of the screen. This is what replaced the
                 `quote-blown` conflict: the wait against the quote sits on the party it
                 describes rather than shouting from the conflicts strip. */}
