@@ -10,9 +10,9 @@
 // which is the platform doing the work a useState triple would have done.
 import type { FormEvent } from 'react';
 import {
-  addTable, addToWaitlist, applyLayoutTemplate, applySavedLayout, assignSection,
-  clearTable, fireCourse, removeTable, reshape, resolveNote, retimeTicket, seatParty,
-  setPin, swapTicketItem, updateTable,
+  addTable, addToWaitlist, applySavedLayout, assignSection, clearTable, fireCourse,
+  removeTable, reshape, resolveNote, retimeTicket, seatParty, setPin, swapTicketItem,
+  updateTable,
 } from './mutations.ts';
 import { deleteLayout, listLayouts, readLayout, saveLayout } from './layouts.ts';
 import type { Reshape, Result } from './mutations.ts';
@@ -823,23 +823,7 @@ export function FloorPane({ sous, act, select }: PaneProps) {
               </ul>
             )}
 
-            <form
-              className="field"
-              onSubmit={(e) => {
-                const f = fields(e);
-                const template = f('template') as 'bistro' | 'banquet' | 'communal';
-                const covers = Number(f('covers'));
-                act((d) => applyLayoutTemplate(d, { template, covers }, 'human'));
-              }}
-            >
-              <span className="eyebrow">FROM</span>
-              <select name="template" defaultValue="bistro">
-                {['bistro', 'banquet', 'communal'].map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <input name="covers" type="number" min={8} max={200} step={4} defaultValue={60} required />
-              <button className="tbtn tbtn--sm" type="submit">Lay out</button>
-            </form>
-            <p className="hint">Pinned tables survive a template or a load.</p>
+            <p className="hint">Pinned tables survive a load.</p>
           </div>
         </>
       )}
@@ -862,6 +846,9 @@ export function FloorPane({ sous, act, select }: PaneProps) {
         )}
       </div>
 
+      {/* Notes are written DURING service, by servers, about parties. There are none
+          before the doors open, so the block is service-only. */}
+      {!design && (
       <div className="block">
         <span className="eyebrow">SERVICE NOTES</span>
         {open.length === 0 ? (
@@ -890,6 +877,7 @@ export function FloorPane({ sous, act, select }: PaneProps) {
           ))
         )}
       </div>
+      )}
 
       <div className="block">
         <span className="eyebrow">SECTIONS</span>

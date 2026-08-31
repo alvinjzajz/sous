@@ -161,27 +161,34 @@ export default function App() {
               <i />
               {over ? 'CLOSED' : mode === 'design' ? 'DESIGN' : 'SERVICE'} · {fmtClock(shift.clock)}
             </div>
-            <button
-              className="tbtn"
-              aria-pressed={shift.running}
-              disabled={over}
-              onClick={() => sous.setShift({ running: !shift.running, mode: 'service' })}
-            >
-              {shift.running ? '❚❚ Pause' : '▶ Run'}
-            </button>
-            {SPEEDS.map((x) => (
-              <button
-                key={x}
-                className="tbtn tbtn--sm"
-                aria-pressed={shift.speed === x}
-                onClick={() => sous.setShift({ speed: x })}
-              >
-                {x}×
-              </button>
-            ))}
-            <button className="tbtn" onClick={() => sous.jumpTo(PEAK)} disabled={shift.clock >= PEAK}>
-              → 7:15
-            </button>
+            {/* The transport belongs to SERVICE. Design mode pauses the shift by
+                definition, so a Run button there is a door back into a state the mode
+                forbids — switch to Service and the whole transport comes back. */}
+            {mode === 'service' && (
+              <>
+                <button
+                  className="tbtn"
+                  aria-pressed={shift.running}
+                  disabled={over}
+                  onClick={() => sous.setShift({ running: !shift.running, mode: 'service' })}
+                >
+                  {shift.running ? '❚❚ Pause' : '▶ Run'}
+                </button>
+                {SPEEDS.map((x) => (
+                  <button
+                    key={x}
+                    className="tbtn tbtn--sm"
+                    aria-pressed={shift.speed === x}
+                    onClick={() => sous.setShift({ speed: x })}
+                  >
+                    {x}×
+                  </button>
+                ))}
+                <button className="tbtn" onClick={() => sous.jumpTo(PEAK)} disabled={shift.clock >= PEAK}>
+                  → 7:15
+                </button>
+              </>
+            )}
             {/* Undo is a mutation-path control, not a transport one: it rewinds the
                 board and leaves the clock running (§2, rule 2). Run at 60x and watch
                 these stay greyed out — ticks never push a snapshot. */}
@@ -275,22 +282,29 @@ export default function App() {
           {/* The agent activity rail (§5). One line per mutation, whoever asked, and the
               refusals are the point — "Refused: T12 pinned" is the 2:40 beat. Pinned
               below the pane so it stays on screen whichever pane is open. */}
-          <div className="log" role="log" aria-live="polite" aria-label="Activity">
-            <span className="eyebrow">ACTIVITY</span>
-            {sous.log.length === 0 ? (
-              <p className="hint">Nothing yet. Every edit, yours or the agent's, lands here.</p>
-            ) : (
-              <ul>
-                {sous.log.map((l) => (
-                  <li key={l.n} className={l.ok ? undefined : 'refused'}>
-                    <b>{fmtClock(l.at)}</b>
-                    <i className={`by by--${l.by}`}>{l.by}</i>
-                    <span>{l.message}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          {/* <details> rather than a useState toggle: the open/closed state, the
+              keyboard handling and the disclosure semantics are the platform's. */}
+          <details className="log" open>
+            <summary>
+              <span className="eyebrow">ACTIVITY</span>
+              {sous.log.length > 0 && <b>{sous.log.length}</b>}
+            </summary>
+            <div className="logBody" role="log" aria-live="polite" aria-label="Activity">
+              {sous.log.length === 0 ? (
+                <p className="hint">Nothing yet. Every edit, yours or the agent's, lands here.</p>
+              ) : (
+                <ul>
+                  {sous.log.map((l) => (
+                    <li key={l.n} className={l.ok ? undefined : 'refused'}>
+                      <b>{fmtClock(l.at)}</b>
+                      <i className={`by by--${l.by}`}>{l.by}</i>
+                      <span>{l.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </details>
         </aside>
       ) : (
         <aside className="rail rail--right rail--collapsed">
