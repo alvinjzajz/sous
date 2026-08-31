@@ -327,6 +327,15 @@ export default function FloorPlan({
             {t.provenance === 'agent' &&
               footprint({ fill: 'none', stroke: 'var(--select)', strokeWidth: 1, strokeDasharray: '2 2' })}
 
+            {/* A conflict is ringed OUTSIDE the tabletop, at the same offset as the
+                selection halo — never across the top, where it would cut through the
+                table's own name. Amber warns, alert is an error, matching the strip. */}
+            {flag &&
+              footprint(
+                { fill: 'none', stroke: flag === 'error' ? 'var(--alert)' : 'var(--amber)', strokeWidth: 1 },
+                3,
+              )}
+
             {/* Silkscreen advances ~0.6em, so a 3-char name needs ~1.8x the font size
                 in cells. Drop a size on the 2-tops rather than let it spill. */}
             <PixelText x={t.x} y={t.y - 2} size={t.w >= 8 ? 4 : 3} fill="var(--select)" shadow="rgba(24,14,8,.65)">
@@ -335,14 +344,6 @@ export default function FloorPlan({
             <text x={t.x} y={t.y + 3} fontSize="3" fill="var(--select)" opacity="0.78">
               {party ? `${t.seats}·${section?.name.charAt(0) ?? ''}` : String(t.seats)}
             </text>
-
-            {/* A conflict wears an inner ring in its own severity colour. Amber warns,
-                alert is an error — the same two values the conflicts strip uses. */}
-            {flag &&
-              footprint(
-                { fill: 'none', stroke: flag === 'error' ? 'var(--alert)' : 'var(--amber)', strokeWidth: 1 },
-                round ? -1 : -2, // clear of the bevel on a rect, off the label on a round
-              )}
 
             {/* Pinned: a pushpin on the tabletop. Shape, not colour, so it survives
                 greyscale and a compressed video frame — this is the 2:40 beat (§9). */}

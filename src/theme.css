@@ -310,7 +310,9 @@ button { font-family: inherit; }
 
 }
 
-.sections { display: flex; flex-direction: column; gap: 8px; }
+/* A <ul> keeps the UA's 40px padding-inline-start unless it is reset. Flex hides the
+   markers, so the only symptom is a list indented past every other block in the rail. */
+.sections { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .sections li {
   display: flex;
   align-items: center;
@@ -322,8 +324,6 @@ button { font-family: inherit; }
   font-size: 13px;
 }
 .sections li span:last-child { margin-left: auto; font-size: 11.5px; color: var(--ink-mute); }
-.sections ul, .footbar ul, .nav { padding-left: 0; }
-.sections ul { margin: 0; padding: 0; list-style: none; }
 
 /* Pixel register: the floor ------------------------------------------------ */
 
