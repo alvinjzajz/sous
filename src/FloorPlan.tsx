@@ -224,7 +224,10 @@ export default function FloorPlan({
       <g transform={`scale(${PX})`}>
       <rect width={bounds.w} height={bounds.h} fill="url(#tile)" />
       {/* ponytail: no 0.5 m snap-grid overlay — it fights the floor's own nail-head
-          grid and nothing snaps until add_table lands. Re-add it on day 3, gated on
+          grid. `addTable` snaps to plan.gridSize as of day 3, so the overlay would now
+          say something true; it is still not drawn because nothing in the UI places a
+          table by hand yet. Ceiling — design mode reads as unfinished the moment it gets
+          controls. Add it with them (SOUS_PLAN.md §8, conditional day 4), gated on
           design mode, as the mockup does. */}
       <rect
         x={WALL}

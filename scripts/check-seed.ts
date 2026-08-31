@@ -42,8 +42,12 @@ for (const t of tables) {
 }
 
 // ponytail: clearance is measured table-edge to table-edge, so chairs are not modelled
-// as obstructions. Upgrade path is to inflate each box by one chair depth (4 cells) in
-// computeConflicts on day 3 — same loop, one extra term — and re-space the room to suit.
+// as obstructions. WEIGHED AND DECLINED on day 3, not deferred again: inflating each box
+// by one chair depth (4 cells) was measured against this seed first, and 26 of the 120
+// table pairs fail, so the room would boot with 26 aisle errors — against a demo whose
+// last beat is an empty conflicts panel (SOUS_PLAN.md §9, 2:55). Ceiling: two tables can
+// sit 915 mm apart edge to edge with their chairs nearly touching. Taking it means
+// re-spacing the room, which is day-1 work, not one extra term in this loop.
 for (let i = 0; i < tables.length; i++) {
   for (let j = i + 1; j < tables.length; j++) {
     const [a, b] = [box(tables[i]), box(tables[j])];
