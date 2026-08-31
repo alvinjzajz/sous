@@ -11,15 +11,28 @@ on the *same live page* rather than through an API.
 
 **Status: in progress.** Days 1 to 4 of 6 are complete — domain model, seed scenario,
 floor-plan renderer, the simulation engine, the mutation layer with its undo stack and
-conflict engine, and the full human interface: six detail panes, click routing, the design
-controls, and the agent activity rail. **The WebMCP tool surface is still to come, so
-nothing below about tools describes shipped code yet**; it describes what is being built.
+conflict engine, and the whole human interface: six detail panes, drag-and-drop layout,
+design tools, saved floor plans, the waitlist and reservation book, and the agent activity
+rail. **The WebMCP tool surface is still to come, so nothing below about tools describes
+shipped code yet**; it describes what is being built.
 
 Everything the tools will do, a person can already do, through the same functions. Every
-button in the app calls a plain function in `src/mutations.ts` via `sous.run(fn, by)`, and
-a tool body on day 5 is `sous.run(fn, 'agent')` and nothing else — which is why a pin
-refusal cannot drift between the two surfaces. Pins, provenance, the design-mode gate and
-the activity rail are all real today.
+button in the app calls one of the nineteen plain functions in `src/mutations.ts` via
+`sous.run(fn, by)`, and a tool body is `sous.run(fn, 'agent')` and nothing else — which is
+why a pin refusal cannot drift between the two surfaces. Pins, provenance, conflict
+overrides, the design-mode gate and the activity rail are all real today.
+
+**Two rules carry the collaboration, and both are enforced in one place:**
+
+- **A pin says the rules do not get to move this.** Pins block everyone — a tool refuses a
+  pinned table whoever asked — and **only a human may unpin**.
+- **An override says this rule does not get to stop me.** A human can accept any conflict;
+  the board stops raising it, and the pin gate honours that too. **Only a human may
+  override, or put one back.**
+
+Layout edits deliberately never refuse on geometry: a table goes where you drag it, and any
+overlap or closed aisle comes back as a sentence and a mark on the floor. Pinning is the
+commitment, so pinning is where legality is enforced.
 
 ## The idea
 
