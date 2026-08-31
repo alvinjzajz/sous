@@ -31,6 +31,12 @@ const CHAIR_GAP = 1;
 const SLOT_PITCH = 3;
 /** Corner notch, in cells. The mockup's signature — square objects are never square. */
 const NOTCH = 0.5;
+/**
+ * Pixel size of a ROUND table, in cells — deliberately coarser than the PX render grid
+ * the rest of the floor uses, so circles read as chunky pixel art rather than as discs.
+ * A four-top at 10 cells across becomes a 5-pixel-radius circle.
+ */
+const ROUND_PX = 1;
 /** Top of the dining floor: below the kitchen line and its wall. */
 const FLOOR_TOP = 22;
 
@@ -92,6 +98,35 @@ function guestsAt(p: Party | undefined, tableId: string, seatsOf: (id: string) =
     left -= here;
   }
   return 0;
+}
+
+/**
+ * A round table drawn as PIXEL ART: a midpoint circle, whose outline steps in whole
+ * ROUND_PX units instead of following a true curve. Round tables are the one thing on
+ * the floor drawn at a coarser pixel than everything else — a real circle rendered on
+ * the fine grid reads as a smooth disc and loses the register the room is built in.
+ *
+ * Walks CLOCKWISE FROM 9 O'CLOCK, up over the top. That start point is what makes the
+ * top and bottom halves contiguous runs of the same list, so the lit and shadowed
+ * bevel rims are slices of the outline rather than a second piece of geometry.
+ */
+function pixelCircle(cx: number, cy: number, radius: number, step = ROUND_PX) {
+  const n = Math.max(1, Math.round(radius / step));
+  // Half-width of each pixel row, from the top row down, measured at the row's centre.
+  const half = Array.from({ length: 2 * n }, (_, k) => {
+    const dy = k - n + 0.5;
+    return Math.max(1, Math.round(Math.sqrt(Math.max(0, n * n - dy * dy))));
+  });
+  const at = (px: number, py: number) => `${cx + px * step},${cy + py * step}`;
+  const top: string[] = [];
+  const bottom: string[] = [];
+  for (let k = n - 1; k >= 0; k--) top.push(at(-half[k], k - n + 1), at(-half[k], k - n));
+  for (let k = 0; k < n; k++) top.push(at(half[k], k - n), at(half[k], k - n + 1));
+  for (let k = n; k < 2 * n; k++) bottom.push(at(half[k], k - n), at(half[k], k - n + 1));
+  for (let k = 2 * n - 1; k >= n; k--) bottom.push(at(-half[k], k - n + 1), at(-half[k], k - n));
+  // Two rows of the same width meet at a point each of them named.
+  const run = (pts: string[]) => pts.filter((pt, i) => pt !== pts[i - 1]).join(' ');
+  return { top: run(top), bottom: run(bottom), ring: run([...top, ...bottom]) };
 }
 
 /** A rect with pixel-notched corners, the mockup's PIX_SQ clip-path as a polygon. */
@@ -279,10 +314,13 @@ export default function FloorPlan({
         /** Same footprint, drawn repeatedly: top, section tint, provenance ring. */
         const footprint = (props: Record<string, string | number>, grow = 0) =>
           round ? (
-            <circle cx={t.x} cy={t.y} r={r + grow} {...props} />
+            <polygon points={pixelCircle(t.x, t.y, r + grow).ring} {...props} />
           ) : (
             <polygon points={notched(x - grow, y - grow, t.w + grow * 2, t.h + grow * 2)} {...props} />
           );
+        // A stroke is one pixel of whatever grid the object is drawn on: a whole cell
+        // for a round table, half a cell for everything else.
+        const edge = round ? ROUND_PX : 0.5;
 
         return (
           <g
@@ -315,26 +353,28 @@ export default function FloorPlan({
               />
             ))}
 
-            {footprint({ fill: 'url(#plank)', stroke: 'var(--edge)', strokeWidth: 1 })}
+            {footprint({ fill: 'url(#plank)', stroke: 'var(--edge)', strokeWidth: edge })}
             {/* Section identity tints the top, the way the mockup tints by status.
                 An occupied table wears its section colour at full strength. */}
             {footprint({ fill: `var(${section?.color ?? '--panel'})`, opacity: party ? 0.72 : 0.28 })}
 
             {/* Bevel: every object in the mockup is lit from above. */}
             {round ? (
+              // The rim one pixel in, lit above and shadowed below — the two halves of
+              // the same staircase, so the bevel steps with the outline it sits inside.
               <>
-                <path
-                  d={`M ${t.x - r + 1} ${t.y} A ${r - 1} ${r - 1} 0 0 1 ${t.x + r - 1} ${t.y}`}
+                <polyline
+                  points={pixelCircle(t.x, t.y, r - ROUND_PX).top}
                   fill="none"
                   stroke="var(--select)"
-                  strokeWidth="0.5"
+                  strokeWidth={ROUND_PX}
                   opacity="0.3"
                 />
-                <path
-                  d={`M ${t.x - r + 1} ${t.y} A ${r - 1} ${r - 1} 0 0 0 ${t.x + r - 1} ${t.y}`}
+                <polyline
+                  points={pixelCircle(t.x, t.y, r - ROUND_PX).bottom}
                   fill="none"
                   stroke="#1e120a"
-                  strokeWidth="0.5"
+                  strokeWidth={ROUND_PX}
                   opacity="0.34"
                 />
               </>
@@ -348,14 +388,14 @@ export default function FloorPlan({
             {/* Provenance is dash vs solid, never colour alone — survives greyscale
                 and a compressed video frame (§6.1). */}
             {t.provenance === 'agent' &&
-              footprint({ fill: 'none', stroke: 'var(--select)', strokeWidth: 1, strokeDasharray: '2 2' })}
+              footprint({ fill: 'none', stroke: 'var(--select)', strokeWidth: edge, strokeDasharray: '2 2' })}
 
             {/* A conflict is ringed OUTSIDE the tabletop, at the same offset as the
                 selection halo — never across the top, where it would cut through the
                 table's own name. Amber warns, alert is an error, matching the strip. */}
             {flag &&
               footprint(
-                { fill: 'none', stroke: flag === 'error' ? 'var(--alert)' : 'var(--amber)', strokeWidth: 1 },
+                { fill: 'none', stroke: flag === 'error' ? 'var(--alert)' : 'var(--amber)', strokeWidth: edge },
                 3,
               )}
 
