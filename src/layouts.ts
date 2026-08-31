@@ -32,11 +32,22 @@ function looksLikeAPlan(v: unknown): v is FloorPlan {
   );
 }
 
+/**
+ * Drop the three keys that turn a parsed object into a prototype-pollution gadget.
+ *
+ * SOUS_PLAN.md §12.2 calls localStorage "the one that gets forgotten", and it is right:
+ * the tool path is covered by `additionalProperties: false`, but this blob is editable
+ * by anyone with devtools open and is deserialised on every render of the design pane.
+ * A reviver returning undefined removes the key outright, before any of it is reachable.
+ */
+const SAFE = new Set(['__proto__', 'constructor', 'prototype']);
+const scrub = (key: string, value: unknown) => (SAFE.has(key) ? undefined : value);
+
 function read(): Store {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw, scrub);
     if (!parsed || typeof parsed !== 'object') return {};
     return Object.fromEntries(
       Object.entries(parsed as Record<string, unknown>).filter(([, v]) => looksLikeAPlan(v)),
