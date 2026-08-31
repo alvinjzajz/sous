@@ -7,12 +7,12 @@
 // Plus: every conflict rule can actually fire, so none of them is dead code.
 // Asserts only; no framework.
 import assert from 'node:assert/strict';
-import { computeConflicts, errorsOnly } from '../src/conflicts.ts';
+import { computeConflicts, conflictKey, errorsOnly, rawConflicts } from '../src/conflicts.ts';
 import {
   addTable, addToWaitlist, applyLayoutTemplate, applySavedLayout, assignSection,
-  clearTable, findSpot, fireCourse, moveParty, removeTable, reshape, resolveNote,
-  restore, retimeTicket, seatParty, setItem86, setPin, snapshot, swapTicketItem,
-  updateTable,
+  clearTable, findSpot, fireCourse, moveParty, overrideConflict, removeTable, reshape,
+  resolveNote, restore, restoreConflict, retimeTicket, seatParty, setItem86, setPin,
+  snapshot, swapTicketItem, updateTable,
 } from '../src/mutations.ts';
 import type { Result } from '../src/mutations.ts';
 import { floorPlan, seedState } from '../src/seed.ts';
@@ -346,6 +346,54 @@ function occupiedTable(s: SousState): string {
   );
 }
 
+// --- overriding a conflict ----------------------------------------------------
+
+{
+  // A conflict is DERIVED, so an override is suppression state, not a deletion. It lives
+  // in SousState so it undoes and a tool can see it, and only a human may set or clear
+  // one - the same authority as a pin, pointed the other way.
+  const s = seedState();
+  must(updateTable(s, { tableId: 'T1', x: s.plan.tables[1].x, y: s.plan.tables[1].y }, 'human'), 'stacking two tables');
+  const before = computeConflicts(s, 'design');
+  assert.ok(before.length > 0, 'stacking two tables raised nothing to override');
+  const key = conflictKey(before[0]);
+
+  refused(overrideConflict(s, { key }, 'agent'), 'an agent overriding a conflict', 'only a human');
+  assert.deepEqual(s.overrides, [], 'the refused override wrote to state anyway');
+
+  must(overrideConflict(s, { key }, 'human'), 'a human overriding a conflict');
+  assert.deepEqual(s.overrides, [key], 'the override did not stick');
+  assert.equal(
+    computeConflicts(s, 'design').length, before.length - 1,
+    'the board still raises an overridden conflict',
+  );
+  // Suppressed for the ENGINE, not just the strip: the situation is still true.
+  assert.equal(rawConflicts(s, 'design').length, before.length, 'the override changed the room itself');
+
+  refused(overrideConflict(s, { key }, 'human'), 'overriding the same conflict twice', 'already');
+  refused(overrideConflict(s, { key: 'not|a|conflict' }, 'human'), 'overriding something that is not on the board');
+
+  // Undo puts it back, because overrides are domain state and ride the snapshot.
+  const snap = snapshot(s);
+  must(restoreConflict(s, { key }, 'human'), 'a human restoring a conflict');
+  assert.deepEqual(s.overrides, [], 'the restore did not clear it');
+  refused(restoreConflict(s, { key }, 'agent'), 'an agent restoring a conflict', 'only they can');
+  const back = restore(snap, s);
+  assert.deepEqual(back.overrides, [key], 'undo did not bring the override back');
+}
+
+{
+  // The override has to reach the PIN GATE, or it is a sticker over a rule that still
+  // fires: accepting an overlap must let you pin the table you accepted it for.
+  const s = seedState();
+  must(updateTable(s, { tableId: 'T1', x: s.plan.tables[1].x, y: s.plan.tables[1].y }, 'human'), 'stacking two tables');
+  refused(setPin(s, { targetId: 'T1' }, 'human'), 'pinning an overlapping table', 'overlap');
+  for (const c of rawConflicts(s, 'design')) {
+    if (c.targetId === 'T1') must(overrideConflict(s, { key: conflictKey(c) }, 'human'), `overriding ${c.type}`);
+  }
+  must(setPin(s, { targetId: 'T1' }, 'human'), 'pinning once the conflicts are overridden');
+}
+
 // --- renaming frees the old name ----------------------------------------------
 
 {
@@ -666,7 +714,7 @@ for (const template of ['banquet', 'communal'] as const) {
 }
 
 console.log(
-  `mutations ok — 16 mutations, ${new Set(fired).size} conflict rules all firing, ` +
-    'refusals never write, pins refuse both actors, only humans unpin, ' +
+  `mutations ok — 18 mutations, ${new Set(fired).size} conflict rules all firing, ` +
+    'refusals never write, pins refuse both actors, only humans unpin or override, ' +
     'undo rewinds the board and not the clock. Design edits refuse mid-service, placement reports instead of refusing, and only a table that is clear can be pinned.',
 );

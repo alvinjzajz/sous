@@ -6,20 +6,22 @@
 // #2). "23 min on table" recomputes every frame, which is what stops undo resurrecting
 // a stale countdown.
 //
-// No local state anywhere in this file: the three forms are plain <form> + FormData,
-// which is the platform doing the work a useState triple would have done.
+// The forms are plain <form> + FormData and the override confirm is a native <dialog>,
+// so the only useState in this file is which conflict that dialog is asking about.
+import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   addTable, addToWaitlist, applySavedLayout, assignSection, clearTable, fireCourse,
-  removeTable, reshape, resolveNote, retimeTicket, seatParty, setPin, swapTicketItem,
-  updateTable,
+  overrideConflict, removeTable, reshape, resolveNote, restoreConflict, retimeTicket,
+  seatParty, setPin, swapTicketItem, updateTable,
 } from './mutations.ts';
+import { conflictKey } from './conflicts.ts';
 import { deleteLayout, listLayouts, readLayout, saveLayout } from './layouts.ts';
 import type { Reshape, Result } from './mutations.ts';
 import { pickTable } from './sim.ts';
 import type { Sous } from './store.ts';
 import { CELL_M, fmtClock } from './types.ts';
-import type { MenuCourse, Section, SousState, Station, Table } from './types.ts';
+import type { Conflict, MenuCourse, Section, SousState, Station, Table } from './types.ts';
 
 export interface PaneProps {
   sous: Sous;
@@ -729,6 +731,10 @@ export function FloorPane({ sous, act, select }: PaneProps) {
   // Re-read on every render. Saving pushes a line on the rail, which is state, so the
   // list refreshes without a second copy of it living in a useState.
   const saved = listLayouts();
+  // The one piece of local state in this file, and it is the right kind: which conflict
+  // a confirm dialog is currently asking about is not domain state and must not undo.
+  const [pending, setPending] = useState<Conflict | null>(null);
+  const confirmRef = useRef<HTMLDialogElement>(null);
   const { plan, shift, reservations, menu } = state;
   const design = shift.mode === 'design';
   const seats = plan.tables.reduce((n, t) => n + t.seats, 0);
@@ -840,11 +846,67 @@ export function FloorPane({ sous, act, select }: PaneProps) {
                   {c.type}
                 </button>
                 <span>{c.message}{c.suggestion ? <em> {c.suggestion}</em> : null}</span>
+                <button
+                  className="dismiss"
+                  title="Override this conflict"
+                  aria-label={`Override: ${c.message}`}
+                  onClick={() => {
+                    setPending(c);
+                    confirmRef.current?.showModal();
+                  }}
+                >
+                  ×
+                </button>
               </li>
             ))}
           </ul>
         )}
+
+        {sous.overridden.length > 0 && (
+          <>
+            <span className="eyebrow eyebrow--sub">OVERRIDDEN BY YOU</span>
+            <ul className="issues issues--muted">
+              {sous.overridden.map((c, i) => (
+                <li key={`${c.type}-${c.targetId}-${i}`}>
+                  <button className="chip" onClick={() => focusOn(c.targetId)}>{c.type}</button>
+                  <span>{c.message}</span>
+                  <button
+                    className="dismiss"
+                    title="Put it back on the board"
+                    aria-label={`Restore: ${c.message}`}
+                    onClick={() => act((d) => restoreConflict(d, { key: conflictKey(c) }, 'human'))}
+                  >
+                    ↺
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </div>
+
+      {/* Native <dialog> + showModal(): the centring, the backdrop, Esc to close and the
+          focus trap are all the platform's. Nothing here re-implements a modal. */}
+      <dialog className="confirm" ref={confirmRef} onClose={() => setPending(null)}>
+        <h2>Override this conflict?</h2>
+        <p className="said">{pending?.message}</p>
+        <p className="hint">
+          The board will stop raising it until you put it back. Only you can do either —
+          the agent cannot override your call, or undo it.
+        </p>
+        <div className="actions">
+          <button className="tbtn" onClick={() => confirmRef.current?.close()}>Cancel</button>
+          <button
+            className="tbtn tbtn--no"
+            onClick={() => {
+              if (pending) act((d) => overrideConflict(d, { key: conflictKey(pending) }, 'human'));
+              confirmRef.current?.close();
+            }}
+          >
+            Override
+          </button>
+        </div>
+      </dialog>
 
       {/* Notes are written DURING service, by servers, about parties. There are none
           before the doors open, so the block is service-only. */}

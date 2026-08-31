@@ -145,6 +145,7 @@ export const notes: ServiceNote[] = [
 export function seedState(): SousState {
   return structuredClone({
     plan: floorPlan,
+    overrides: [],
     parties: [],
     reservations,
     waitlist: [],

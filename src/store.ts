@@ -13,7 +13,7 @@
 // whatever minute it now is (§2, rule 3).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import { computeConflicts } from './conflicts.ts';
+import { conflictKey, rawConflicts } from './conflicts.ts';
 import { restore, snapshot } from './mutations.ts';
 import type { Actor, Result, Snapshot } from './mutations.ts';
 import { seedState } from './seed.ts';
@@ -47,7 +47,10 @@ export interface LogLine {
 
 export interface Sous {
   state: SousState;
+  /** What the board is raising. Overridden conflicts are already filtered out. */
   conflicts: Conflict[];
+  /** The ones a human has accepted, still true but no longer raised. */
+  overridden: Conflict[];
   /**
    * The ONLY path that pushes undo. Discards the draft whole if the mutation refuses.
    * `by` stamps the activity rail; the day-5 tool wrapper passes 'agent' and gets its
@@ -156,13 +159,18 @@ export function useSous(): Sous {
     commit(seedState());
   }, [commit]);
 
-  const conflicts = useMemo(
-    () => computeConflicts(state, state.shift.mode === 'design' ? 'design' : 'all'),
-    [state],
-  );
+  const { conflicts, overridden } = useMemo(() => {
+    const scope = state.shift.mode === 'design' ? 'design' : 'all';
+    const raw = rawConflicts(state, scope);
+    const off = new Set(state.overrides);
+    return {
+      conflicts: raw.filter((c) => !off.has(conflictKey(c))),
+      overridden: raw.filter((c) => off.has(conflictKey(c))),
+    };
+  }, [state]);
 
   return {
-    state, conflicts, log, say, run, setShift, jumpTo, reset, undo, redo,
+    state, conflicts, overridden, log, say, run, setShift, jumpTo, reset, undo, redo,
     canUndo: depth.past > 0,
     canRedo: depth.future > 0,
     ref,

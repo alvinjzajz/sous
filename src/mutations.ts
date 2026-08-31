@@ -13,7 +13,9 @@
 //
 // PINS BLOCK EVERYONE. A pinned table or party refuses mutation whoever asks; only a
 // human may unpin (§5). The human owning the pin is the point — "what you move, you own".
-import { computeConflicts, errorsOnly, floorTop, gap, tableBox } from './conflicts.ts';
+import {
+  computeConflicts, conflictKey, errorsOnly, floorTop, gap, rawConflicts, tableBox,
+} from './conflicts.ts';
 import { floorPlan } from './seed.ts';
 import { RUNNER_MIN, fireTicket, freeTables, quoteWait, seatAt, tablesHeld } from './sim.ts';
 import { MIN_AISLE_CELLS, fmtClock } from './types.ts';
@@ -127,8 +129,6 @@ function findParty(s: SousState, a: { partyId?: string; tableId?: string }): Par
   return t ? partyAt(s, t.id) : null;
 }
 
-const conflictKey = (c: Conflict) => `${c.type}|${c.targetId}|${c.message}`;
-
 /**
  * PLACEMENT REPORTS, IT DOES NOT REFUSE.
  *
@@ -162,7 +162,14 @@ function placementErrors(s: SousState, table: Table): Conflict[] {
   const base = new Set(
     errorsOnly(computeConflicts({ ...s, plan: { ...s.plan, tables: others } }, 'design')).map(conflictKey),
   );
-  const withIt = { ...s, plan: { ...s.plan, tables: [...others, table] } };
+  // PUT IT BACK AT ITS OWN INDEX, not on the end. The pairwise rules compare each table
+  // only with the ones after it, so appending made an overlap come out as "T2 overlaps
+  // T1" where the board itself says "T1 overlaps T2" — the same situation under a
+  // different conflict key. That broke overrides (an accepted conflict would not match
+  // the one the pin gate checks) and made the refusal name the wrong table first.
+  const at = s.plan.tables.findIndex((t) => t.id === table.id);
+  const tables = at < 0 ? [...others, table] : [...others.slice(0, at), table, ...others.slice(at)];
+  const withIt = { ...s, plan: { ...s.plan, tables } };
   return errorsOnly(computeConflicts(withIt, 'design')).filter((c) => !base.has(conflictKey(c)));
 }
 
@@ -868,6 +875,49 @@ export function setItem86(
       : `${m.name} is back on.`,
     { tickets: hit.map((t) => t.id) },
   );
+}
+
+/**
+ * Accept a conflict, so the engine stops raising it (SOUS_PLAN.md §5).
+ *
+ * ONLY A HUMAN MAY OVERRIDE, and only a human may put one back. This is the same
+ * authority as a pin, pointed the other way: a pin says "the rules do not get to move
+ * this", an override says "this rule does not get to stop me". Either way the person on
+ * the floor outranks the engine, and the agent may not overrule them (CLAUDE.md #9).
+ */
+export function overrideConflict(
+  s: SousState,
+  a: { key: string },
+  by: Actor,
+): Result<{ key: string; left: number }> {
+  if (by === 'agent') {
+    return no('Only a human can override a conflict. Say what is wrong and let the host decide.');
+  }
+  const live = rawConflicts(s);
+  const hit = live.find((c) => conflictKey(c) === a.key);
+  if (!hit) return no('That conflict is no longer on the board.');
+  if (s.overrides.includes(a.key)) return no(`${hit.message} is already overridden.`);
+
+  // Drop keys whose conflict has since resolved itself, so the list cannot silently grow.
+  const alive = new Set(live.map(conflictKey));
+  s.overrides = [...s.overrides.filter((k) => alive.has(k)), a.key];
+  const left = computeConflicts(s).length;
+  return ok(
+    `Overridden: ${hit.message} The board will stop raising it. ${left} conflict${left === 1 ? '' : 's'} left.`,
+    { key: a.key, left },
+  );
+}
+
+/** Put an overridden conflict back on the board. A human's call, both ways. */
+export function restoreConflict(
+  s: SousState,
+  a: { key: string },
+  by: Actor,
+): Result<{ key: string }> {
+  if (by === 'agent') return no('The host overrode that one. Only they can put it back.');
+  if (!s.overrides.includes(a.key)) return no('That conflict is not overridden.');
+  s.overrides = s.overrides.filter((k) => k !== a.key);
+  return ok('Put it back on the board.', { key: a.key });
 }
 
 // --- Collaboration -----------------------------------------------------------

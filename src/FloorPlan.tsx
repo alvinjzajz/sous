@@ -435,6 +435,11 @@ export default function FloorPlan({
             onPointerDown={(e) => {
               // A PINNED table does not move, for anyone. Same rule as the mutation,
               // just felt earlier: the drag never starts (CLAUDE.md #9).
+              // Clear it HERE, not only in onClick: the flag suppresses the click that
+              // follows a drag, and if that click never comes (the drag ended on empty
+              // floor, or you clicked a different table next) it would swallow an
+              // unrelated selection later.
+              dragged.current = false;
               if (!canDrag || locked || e.button !== 0) return;
               const c = toCell(e);
               if (!c) return;

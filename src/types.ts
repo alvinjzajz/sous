@@ -171,6 +171,12 @@ export interface Shift {
 
 export interface SousState {
   plan: FloorPlan;
+  /**
+   * Conflict keys a HUMAN has accepted, so the engine stops raising them. Domain state,
+   * not UI state: it belongs in the undo snapshot, and a tool must be able to see that
+   * the host has already signed off on something. Only a human may add or remove one.
+   */
+  overrides: string[];
   parties: Party[];
   reservations: Reservation[];
   waitlist: WaitEntry[];

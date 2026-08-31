@@ -244,8 +244,34 @@ function serviceConflicts(s: SousState): Conflict[] {
   return out;
 }
 
-/** The whole engine. `scope` filters which half runs; nothing else differs. */
+/**
+ * Stable handle for one conflict, so a human can accept it and have it stay accepted.
+ *
+ * ponytail: the MESSAGE is part of the key, so an override lapses when the sentence
+ * changes. For the rules where the message is fixed — overlap, section-unstaffed — that
+ * is simply an id. For the measured ones (aisle: "...is 875mm") nudging the table
+ * re-raises it, which is defensible: an override says "I accept THIS", and the numbers
+ * changing makes it a different this. Ceiling — moving the OTHER table, or renaming
+ * either, also re-raises. Upgrade is an explicit `key` built at each of the 12 push
+ * sites from ids alone; that is 12 edits, and none of them is interesting.
+ */
+export const conflictKey = (c: Conflict) => `${c.type}|${c.targetId}|${c.message}`;
+
+/**
+ * The whole engine. `scope` filters which half runs; nothing else differs.
+ *
+ * Overridden conflicts are dropped HERE rather than in the UI, so everything downstream
+ * agrees: the strip, the marks on the floor, `placementErrors`, and the pin gate. That
+ * is the point of an override — accepting an overlap has to let you pin the table you
+ * accepted it for, or the override would be a sticker over a rule that still fires.
+ */
 export function computeConflicts(s: SousState, scope: Scope = 'all'): Conflict[] {
+  const raw = rawConflicts(s, scope);
+  return s.overrides.length ? raw.filter((c) => !s.overrides.includes(conflictKey(c))) : raw;
+}
+
+/** Every conflict the room actually has, overrides included. The UI lists them. */
+export function rawConflicts(s: SousState, scope: Scope = 'all'): Conflict[] {
   return [
     ...(scope === 'service' ? [] : designConflicts(s)),
     ...(scope === 'design' ? [] : serviceConflicts(s)),
