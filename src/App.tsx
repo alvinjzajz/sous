@@ -109,31 +109,43 @@ export default function App() {
             </button>
           </div>
 
-          {/* The agent panel, WanderNote's shape (SHOWCASE_TEARDOWN.md): a status line, a
-              tool count, and the whole surface one click away. A judge opening this in a
-              browser without WebMCP still has to see that the 30 tools exist — and on a
-              browser WITH it, the same element is the proof they registered. */}
-          <details className={`mcp mcp--${mcpState}`}>
-            <summary>
+          {/* The agent panel. The trigger sits in the rail; the list opens in a native
+              popover, which renders in the TOP LAYER — the only way it escapes this
+              rail's own overflow-y:auto instead of being clipped by it. `popover` and
+              `popovertarget` are platform features, so there is no open/closed state,
+              no outside-click handler and no focus trap to get wrong here. */}
+          <div className={`mcp mcp--${mcpState}`}>
+            <button className="mcpTrigger" type="button" popoverTarget="mcpTools">
               <span className="eyebrow">WEBMCP</span>
               <b>{TOOL_DEFS.length} tools</b>
-            </summary>
+              <span className="mcpChevron" aria-hidden="true">›</span>
+            </button>
             <p className="mcpStatus">
               {mcpState === 'live'
-                ? `Native browser WebMCP is connected. ${mcp.registered.length} of ${TOOL_DEFS.length} tools registered.`
+                ? `Connected · ${mcp.registered.length}/${TOOL_DEFS.length} registered`
                 : mcpState === 'connecting'
-                  ? `Checking browser WebMCP… ${mcp.registered.length} of ${TOOL_DEFS.length} registered.`
-                  : 'Browser bridge ready · native WebMCP unavailable. Enable chrome://flags/#enable-webmcp-testing, or call them on window.__sous.'}
-              {mcp.errors.length > 0 && <em> {mcp.errors.length} failed to register.</em>}
+                  ? `Checking browser WebMCP… ${mcp.registered.length}/${TOOL_DEFS.length}`
+                  : 'Browser bridge ready · native WebMCP unavailable'}
+              {mcp.errors.length > 0 && <em> {mcp.errors.length} failed.</em>}
             </p>
-            {/* One letter, not a word: the rail is 185px and a spelled-out tag truncated
-                the tool names, which are the thing worth reading. The legend carries the
-                meaning once, and each row keeps a title for hover and screen readers. */}
-            <p className="toolKey">
-              <i className="by by--human">R</i> read
-              <i className="by by--agent">W</i> writes
-              <i className="by by--gone">D</i> destructive
-            </p>
+          </div>
+
+          <div id="mcpTools" popover="auto" className={`mcpPanel mcpPanel--${mcpState}`}>
+            <div className="mcpPanelHead">
+              <div>
+                <strong>WebMCP · {TOOL_DEFS.length} tools</strong>
+                <p>
+                  {mcpState === 'live'
+                    ? `Native browser WebMCP is connected. ${mcp.registered.length} of ${TOOL_DEFS.length} tools registered.`
+                    : mcpState === 'connecting'
+                      ? 'Checking browser WebMCP…'
+                      : 'Browser bridge ready · native WebMCP unavailable. Enable chrome://flags/#enable-webmcp-testing, or call them on window.__sous.'}
+                </p>
+              </div>
+              <button className="chevron chevron--sm" type="button" popoverTarget="mcpTools" popoverTargetAction="hide" title="Close">
+                ×
+              </button>
+            </div>
             <ul className="toolList">
               {TOOL_DEFS.map((t) => {
                 const on = mcp.registered.includes(t.name);
@@ -144,17 +156,23 @@ export default function App() {
                     ? { letter: 'R', word: 'read only', tone: 'human' }
                     : { letter: 'W', word: 'writes', tone: 'agent' };
                 return (
-                  <li key={t.name} title={`${t.name} — ${kind.word}`}>
+                  <li key={t.name}>
                     <code>{t.name}</code>
-                    <i className={`by by--${kind.tone}`}>{kind.letter}</i>
-                    {/* Always rendered, so the row's width does not change when the
-                        flag IS on — otherwise the ✓ column appears and clips every name. */}
-                    <span className={on ? 'ok' : 'hint'}>{mcp.supported ? (on ? '✓' : '…') : ''}</span>
+                    <i className={`by by--${kind.tone}`} title={kind.word}>{kind.letter}</i>
+                    <span className={`mcpTick ${on ? 'ok' : 'hint'}`}>
+                      {mcpState === 'fallback' ? '' : on ? '✓' : '…'}
+                    </span>
+                    <small>{t.summary}</small>
                   </li>
                 );
               })}
             </ul>
-          </details>
+            <p className="mcpKey">
+              <i className="by by--human">R</i> reads only
+              <i className="by by--agent">W</i> changes the board
+              <i className="by by--gone">D</i> destructive
+            </p>
+          </div>
 
           <div className="modes">
             <span className="eyebrow">MODE</span>

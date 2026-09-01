@@ -39,6 +39,11 @@ for (const d of defs) {
   assert.ok(/^[a-z][a-z0-9_]*$/.test(d.name), `${d.name} is not a plain snake_case name`);
   assert.ok(d.description.length <= MAX_DESC, `${d.name}'s description is ${d.description.length} chars, over ${MAX_DESC}`);
   assert.ok(d.description.length > 40, `${d.name}'s description is too thin to pick it with`);
+  // The in-page panel's one-liner. UI only, so it is not against Chrome's budget — but
+  // it has to fit one line in a 340px popover, and every tool needs one.
+  assert.ok(d.summary.length > 0, `${d.name} has no summary for the tool panel`);
+  assert.ok(d.summary.length <= 50, `${d.name}'s summary is ${d.summary.length} chars; keep it to one line`);
+  assert.ok(!d.summary.endsWith('.'), `${d.name}'s summary is a label, not a sentence — drop the full stop`);
   for (const [param, spec] of Object.entries(d.inputSchema.properties)) {
     const desc = String(spec.description ?? '');
     assert.ok(param.length <= MAX_NAME, `${d.name}.${param} is over the ${MAX_NAME}-char parameter name limit`);
