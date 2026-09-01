@@ -710,39 +710,111 @@ button { font-family: inherit; }
 .navOpen .waits li { padding: 7px 9px; }
 .navOpen .hint { display: block; padding: 0 4px 10px; }
 
-/* --- The WebMCP surface: status chip and the tool list (§3) ------------------ */
+/* --- The WebMCP agent panel (§3), WanderNote's shape ------------------------- */
 
 .mcp {
   margin: 0 0 14px;
-  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--sage);
+  border-left: 3px solid var(--amber);
   border-radius: 3px;
   background: var(--panel);
-  display: grid;
-  gap: 2px;
-  font-size: 11px;
-  line-height: 1.35;
 }
-.mcp--fallback { border-left-color: var(--amber); }
-.mcp b { font-size: 11px; letter-spacing: 0.01em; }
-.mcp span { color: var(--ink-soft); }
-.mcp em { color: var(--alert); font-style: normal; }
+.mcp--live { border-left-color: var(--sage); }
+.mcp--connecting { border-left-color: var(--ink-soft); }
 
-.log--tools .logBody { max-height: 232px; }
-.toolList { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
-.toolList li {
+.mcp > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.mcp > summary::-webkit-details-marker { display: none; }
+/* The disclosure arrow, drawn rather than shipped, so it turns with the state. */
+.mcp > summary::after {
+  content: '›';
+  margin-left: auto;
+  color: var(--ink-soft);
+  transition: transform 120ms ease;
+}
+.mcp[open] > summary::after { transform: rotate(90deg); }
+.mcp > summary:hover { background: var(--panel-hi, transparent); }
+.mcp > summary:focus-visible { outline: 2px solid var(--sage); outline-offset: -2px; }
+
+/* The status dot carries the same three states as the border, for anyone who cannot
+   pick the border colour out — colour is never the only signal. */
+.mcp > summary .eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--amber);
+}
+.mcp--live > summary .eyebrow::before { background: var(--sage); }
+.mcp--connecting > summary .eyebrow::before { background: var(--ink-soft); }
+.mcp > summary b { font-size: 11px; font-weight: 600; }
+
+.mcpStatus {
+  margin: 0;
+  padding: 0 10px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+.mcpStatus em { color: var(--alert); font-style: normal; }
+
+.mcp .toolList {
+  list-style: none;
+  margin: 0;
+  padding: 0 10px 10px;
+  display: grid;
+  gap: 1px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.mcp .toolList li {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 6px;
-  padding: 2px 0;
+  padding: 1px 0;
 }
-.toolList code {
+.mcp .toolList code {
   font-family: inherit;
   font-size: 11px;
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.toolList .ok { color: var(--sage); }
+.mcp .toolList .ok { color: var(--sage); }
+
+/* One-letter kind tags, so the tool NAME gets the 185px rail's width. */
+.toolKey {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin: 0;
+  padding: 0 10px 6px;
+  font-size: 9px;
+  color: var(--ink-soft);
+}
+.toolKey .by { margin-left: 4px; }
+.toolKey .by:first-child { margin-left: 0; }
+.mcp .toolList { font-size: 10px; }
+.mcp .toolList code { font-size: 10px; letter-spacing: -0.01em; }
+.mcp .toolList .by,
+.toolKey .by {
+  min-width: 13px;
+  padding: 1px 0;
+  text-align: center;
+  font-size: 9px;
+}
+.by--gone { color: var(--alert); border-color: var(--alert); }
+/* The registration column is always present; empty until a native API confirms. */
+.mcp .toolList li { gap: 4px; }
+.mcp .toolList li > span:last-child { min-width: 8px; text-align: right; }

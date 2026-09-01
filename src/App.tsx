@@ -90,6 +90,10 @@ export default function App() {
   // The agent's half. Rebuilt every render and read through a ref inside the hook, so
   // the closures never go stale and the effect still runs exactly once (§3).
   const mcp = useWebMCP(TOOL_DEFS, makeImpls(sous, { focus: setSelectedId }));
+  /** Three states, WanderNote's: connected, still registering, or no native API here. */
+  const mcpState = !mcp.supported
+    ? 'fallback'
+    : mcp.registered.length < TOOL_DEFS.length ? 'connecting' : 'live';
 
   return (
     <div className="app">
@@ -105,17 +109,52 @@ export default function App() {
             </button>
           </div>
 
-          {/* Judges opening this in a browser without WebMCP still need to see that the
-              surface exists — SHOWCASE_TEARDOWN.md's checklist, and WanderNote's phrasing. */}
-          <p className={`mcp mcp--${mcp.supported ? 'live' : 'fallback'}`}>
-            <b>{mcp.supported ? 'Native browser WebMCP connected' : 'Browser bridge ready'}</b>
-            <span>
-              {mcp.supported
-                ? `${mcp.registered.length} of ${TOOL_DEFS.length} tools registered`
-                : `native WebMCP unavailable · ${TOOL_DEFS.length} tools ready on window.__sous`}
-            </span>
-            {mcp.errors.length > 0 && <em>{mcp.errors.length} failed to register</em>}
-          </p>
+          {/* The agent panel, WanderNote's shape (SHOWCASE_TEARDOWN.md): a status line, a
+              tool count, and the whole surface one click away. A judge opening this in a
+              browser without WebMCP still has to see that the 30 tools exist — and on a
+              browser WITH it, the same element is the proof they registered. */}
+          <details className={`mcp mcp--${mcpState}`}>
+            <summary>
+              <span className="eyebrow">WEBMCP</span>
+              <b>{TOOL_DEFS.length} tools</b>
+            </summary>
+            <p className="mcpStatus">
+              {mcpState === 'live'
+                ? `Native browser WebMCP is connected. ${mcp.registered.length} of ${TOOL_DEFS.length} tools registered.`
+                : mcpState === 'connecting'
+                  ? `Checking browser WebMCP… ${mcp.registered.length} of ${TOOL_DEFS.length} registered.`
+                  : 'Browser bridge ready · native WebMCP unavailable. Enable chrome://flags/#enable-webmcp-testing, or call them on window.__sous.'}
+              {mcp.errors.length > 0 && <em> {mcp.errors.length} failed to register.</em>}
+            </p>
+            {/* One letter, not a word: the rail is 185px and a spelled-out tag truncated
+                the tool names, which are the thing worth reading. The legend carries the
+                meaning once, and each row keeps a title for hover and screen readers. */}
+            <p className="toolKey">
+              <i className="by by--human">R</i> read
+              <i className="by by--agent">W</i> writes
+              <i className="by by--gone">D</i> destructive
+            </p>
+            <ul className="toolList">
+              {TOOL_DEFS.map((t) => {
+                const on = mcp.registered.includes(t.name);
+                const read = t.annotations?.readOnlyHint === true;
+                const kind = t.annotations?.destructiveHint
+                  ? { letter: 'D', word: 'destructive', tone: 'gone' }
+                  : read
+                    ? { letter: 'R', word: 'read only', tone: 'human' }
+                    : { letter: 'W', word: 'writes', tone: 'agent' };
+                return (
+                  <li key={t.name} title={`${t.name} — ${kind.word}`}>
+                    <code>{t.name}</code>
+                    <i className={`by by--${kind.tone}`}>{kind.letter}</i>
+                    {/* Always rendered, so the row's width does not change when the
+                        flag IS on — otherwise the ✓ column appears and clips every name. */}
+                    <span className={on ? 'ok' : 'hint'}>{mcp.supported ? (on ? '✓' : '…') : ''}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
 
           <div className="modes">
             <span className="eyebrow">MODE</span>
@@ -325,32 +364,6 @@ export default function App() {
               below the pane so it stays on screen whichever pane is open. */}
           {/* <details> rather than a useState toggle: the open/closed state, the
               keyboard handling and the disclosure semantics are the platform's. */}
-          {/* The whole tool surface, on screen. This is the cheapest possible proof of
-              WebMCP leverage in a three-minute video: 30 named tools a judge can read. */}
-          <details className="log log--tools">
-            <summary>
-              <span className="eyebrow">AGENT TOOLS</span>
-              <b>{TOOL_DEFS.length}</b>
-            </summary>
-            <div className="logBody">
-              <ul className="toolList">
-                {TOOL_DEFS.map((t) => {
-                  const on = mcp.registered.includes(t.name);
-                  const read = t.annotations?.readOnlyHint === true;
-                  return (
-                    <li key={t.name}>
-                      <code>{t.name}</code>
-                      <i className={`by by--${read ? 'human' : 'agent'}`}>
-                        {t.annotations?.destructiveHint ? 'destructive' : read ? 'read' : 'writes'}
-                      </i>
-                      {mcp.supported && <span className={on ? 'ok' : 'hint'}>{on ? '✓' : '…'}</span>}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          </details>
-
           <details className="log" open>
             <summary>
               <span className="eyebrow">ACTIVITY</span>
