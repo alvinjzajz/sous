@@ -39,6 +39,13 @@ const WALL = 2;
 /** Two tables can be pushed together if they are no further apart than this. */
 const JOIN_MAX = 2 * MIN_AISLE_CELLS;
 /** Caps on agent-supplied order lines — schema validation is not enough (§12.1). */
+/**
+ * Most tables the room will hold. An agent that misreads a note and calls add_table in a
+ * loop should hit a wall, not a frozen tab (SOUS_PLAN.md §12.1) — and get_floorplan has
+ * to stay inside Chrome's ~1.5 KB output ceiling at this count, which check-tools.ts
+ * asserts against a maxed room rather than the seeded 16.
+ */
+const MAX_TABLES = 30;
 const MAX_LINES = 12;
 const MAX_QTY = 12;
 /** Table footprint bounds, in cells. Shared by updateTable and the reshape buttons. */
@@ -336,6 +343,9 @@ export function addTable(
 ): Result<Table> {
   const shut = designOnly(s);
   if (shut) return shut;
+  if (s.plan.tables.length >= MAX_TABLES) {
+    return no(`The room holds ${MAX_TABLES} tables and there are already ${s.plan.tables.length}. Take one out before adding another.`);
+  }
   const seats = Math.round(a.seats);
   if (!Number.isFinite(seats) || seats < 1 || seats > 12) {
     return no(`A table seats 1 to 12; ${a.seats} is not a table.`);

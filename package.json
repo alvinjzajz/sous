@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "check": "node scripts/check-seed.ts && node scripts/check-sim.ts && node scripts/check-mutations.ts"
+    "check": "node scripts/check-seed.ts && node scripts/check-sim.ts && node scripts/check-mutations.ts && node scripts/check-tools.ts"
   },
   "dependencies": {
     "react": "^19.2.8",

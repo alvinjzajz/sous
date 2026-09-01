@@ -17,8 +17,11 @@ import {
 } from './Panes.tsx';
 import { updateTable } from './mutations.ts';
 import type { Result } from './mutations.ts';
+import { floorPlan, menu } from './seed.ts';
 import { openBookings, serviceOver, stationLoad } from './sim.ts';
 import { useSous } from './store.ts';
+import { makeImpls, toolDefs } from './tools.ts';
+import { useWebMCP } from './webmcp.ts';
 import { CELL_M, fmtClock } from './types.ts';
 import type { SousState } from './types.ts';
 
@@ -31,6 +34,14 @@ const MODES = [
 const SPEEDS = [1, 8, 60] as const;
 /** 7:15 PM — the room the demo opens on (§9, 1:15). */
 const PEAK = 135;
+
+/**
+ * Built once at module scope, not per render, because useWebMCP registers on the identity
+ * of this array and re-registering 30 tools on every tick would be the one mistake §3
+ * warns about. Safe to freeze: menu ids and section ids are seeded registries that no
+ * mutation renames, which is exactly why they are the only things allowed to be enums.
+ */
+const TOOL_DEFS = toolDefs(menu, floorPlan.sections.map((s) => s.id));
 
 export default function App() {
   const sous = useSous();
@@ -76,6 +87,10 @@ export default function App() {
 
   const paneProps = { sous, act, select: setSelectedId };
 
+  // The agent's half. Rebuilt every render and read through a ref inside the hook, so
+  // the closures never go stale and the effect still runs exactly once (§3).
+  const mcp = useWebMCP(TOOL_DEFS, makeImpls(sous, { focus: setSelectedId }));
+
   return (
     <div className="app">
       {leftOpen ? (
@@ -89,6 +104,18 @@ export default function App() {
               ‹
             </button>
           </div>
+
+          {/* Judges opening this in a browser without WebMCP still need to see that the
+              surface exists — SHOWCASE_TEARDOWN.md's checklist, and WanderNote's phrasing. */}
+          <p className={`mcp mcp--${mcp.supported ? 'live' : 'fallback'}`}>
+            <b>{mcp.supported ? 'Native browser WebMCP connected' : 'Browser bridge ready'}</b>
+            <span>
+              {mcp.supported
+                ? `${mcp.registered.length} of ${TOOL_DEFS.length} tools registered`
+                : `native WebMCP unavailable · ${TOOL_DEFS.length} tools ready on window.__sous`}
+            </span>
+            {mcp.errors.length > 0 && <em>{mcp.errors.length} failed to register</em>}
+          </p>
 
           <div className="modes">
             <span className="eyebrow">MODE</span>
@@ -298,6 +325,32 @@ export default function App() {
               below the pane so it stays on screen whichever pane is open. */}
           {/* <details> rather than a useState toggle: the open/closed state, the
               keyboard handling and the disclosure semantics are the platform's. */}
+          {/* The whole tool surface, on screen. This is the cheapest possible proof of
+              WebMCP leverage in a three-minute video: 30 named tools a judge can read. */}
+          <details className="log log--tools">
+            <summary>
+              <span className="eyebrow">AGENT TOOLS</span>
+              <b>{TOOL_DEFS.length}</b>
+            </summary>
+            <div className="logBody">
+              <ul className="toolList">
+                {TOOL_DEFS.map((t) => {
+                  const on = mcp.registered.includes(t.name);
+                  const read = t.annotations?.readOnlyHint === true;
+                  return (
+                    <li key={t.name}>
+                      <code>{t.name}</code>
+                      <i className={`by by--${read ? 'human' : 'agent'}`}>
+                        {t.annotations?.destructiveHint ? 'destructive' : read ? 'read' : 'writes'}
+                      </i>
+                      {mcp.supported && <span className={on ? 'ok' : 'hint'}>{on ? '✓' : '…'}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </details>
+
           <details className="log" open>
             <summary>
               <span className="eyebrow">ACTIVITY</span>
