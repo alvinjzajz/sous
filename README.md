@@ -156,10 +156,13 @@ What *is* true of this tree today: no `dangerouslySetInnerHTML` or `innerHTML` a
 user-controlled `href`/`src`/`style`, no production source maps, no secrets (there is
 nowhere to put one), and a clean `npm audit` over two runtime dependencies.
 
-`window.__sous` is planned as a deliberate, documented exposure for testing and the Chrome
-evals harness — read/write access to app state for any script on the page, acceptable for a
-demo with no real data, and called out here so it reads as a decision rather than an
-oversight when it lands.
+`window.__sous` is a deliberate, documented exposure for testing and the Chrome evals
+harness, called out here so it reads as a decision rather than an oversight. It offers
+exactly two things — `listTools()` and `invoke(name, args)` — and no direct state accessor,
+so anything a page script can reach through it is something a registered tool would hand an
+agent anyway. `invoke` runs the same validation and the same mutation path as the tool
+wrapper, stamped `agent`, so pins and the design-mode gate still refuse it. Acceptable for a
+demo with no accounts, no real data and no backend.
 
 ## Licence
 
