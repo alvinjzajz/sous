@@ -904,6 +904,38 @@ export function swapTicketItem(
   );
 }
 
+/**
+ * Run a plated course to the table.
+ *
+ * NO PIN CHECK, deliberately. A pin says "the rules do not move this" — running food to
+ * a pinned table is service, not disruption, and refusing it would strand a pinned
+ * party's dinner in the window. This is the one service mutation pins do not gate.
+ *
+ * Flips the lines to `served` here rather than leaving it to the next `completeItems`:
+ * the clock is paused for most of a demo, and a mutation that only lands on a tick
+ * looks broken. `completeItems` is idempotent over an already-served ticket.
+ */
+export function deliverTicket(
+  s: SousState,
+  a: { ticketId: string },
+  _by: Actor,
+): Result<Ticket> {
+  const t = s.tickets.find((x) => x.id === a.ticketId);
+  if (!t) return no(`There is no ticket ${a.ticketId}.`);
+  if (t.deliveredAt !== null) return no(`${t.id} is already on the table.`);
+  const waiting = t.items.filter((i) => i.status === 'queued' || i.status === 'cooking');
+  if (waiting.length) {
+    const names = waiting.map((i) => s.menu.find((m) => m.id === i.menuItemId)?.name ?? i.menuItemId);
+    return no(`${list(names)} ${waiting.length > 1 ? 'are' : 'is'} still on the stove. A course goes out together or not at all.`);
+  }
+  const table = s.parties.find((p) => p.id === t.partyId)?.tableId ?? t.partyId;
+  t.deliveredAt = s.shift.clock;
+  for (const i of t.items) i.status = 'served';
+  const early = t.dueAt - s.shift.clock;
+  const when = early > 0 ? `${early} minutes early` : early < 0 ? `${-early} minutes late` : 'on time';
+  return ok(`Ran ${findTable(s, table)?.name ?? table}'s ${t.course} to the table, ${when}.`, t);
+}
+
 export function setItem86(
   s: SousState,
   a: { menuItemId: string; is86d?: boolean },

@@ -144,6 +144,12 @@ export interface Ticket {
   firedAt: number;
   /** Shift-minute the ticket should be on the pass. */
   dueAt: number;
+  /**
+   * Shift-minute someone ran the food to the table, or null if nobody has.
+   * Null means the house runner takes it RUNNER_MIN after the last plate; setting it
+   * lands the course early and starts the party's dwell from that minute instead.
+   */
+  deliveredAt: number | null;
   provenance: Provenance;
 }
 

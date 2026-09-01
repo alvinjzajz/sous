@@ -11,12 +11,12 @@ import { computeConflicts, conflictKey, errorsOnly, rawConflicts } from '../src/
 import {
   addTable, addToWaitlist, applyLayoutTemplate, applySavedLayout, assignReservation, assignSection,
   clearTable, findSpot, fireCourse, moveParty, overrideConflict, removeTable, reshape,
-  resolveNote, restore, restoreConflict, retimeTicket, seatParty, setItem86, setPin,
+  deliverTicket, resolveNote, restore, restoreConflict, retimeTicket, seatParty, setItem86, setPin,
   snapshot, swapTicketItem, updateTable,
 } from '../src/mutations.ts';
 import type { Result } from '../src/mutations.ts';
 import { floorPlan, seedState } from '../src/seed.ts';
-import { advanceTo, tick } from '../src/sim.ts';
+import { RUNNER_MIN, advanceTo, tick, ticketServedAt } from '../src/sim.ts';
 import type { SousState } from '../src/types.ts';
 
 /** The demo's room: 7:15 PM, three-quarters full, tickets in flight (§9, 1:15). */
@@ -696,11 +696,48 @@ for (const template of ['banquet', 'communal'] as const) {
     assert.ok(types(s).has('ticket-86'), "an 86'd item on an open ticket raises nothing");
     must(swapTicketItem(s, { ticketId: queued.id, menuItemId: salmon.id, toMenuItemId: halibut.id }, 'agent'), 'swapping salmon for halibut');
     assert.ok(!queued.items.some((i) => i.menuItemId === salmon.id), 'the salmon is still on the ticket');
-    assert.equal(queued.dueAt, queued.firedAt + Math.max(...queued.items.map((i) => s.menu.find((m) => m.id === i.menuItemId)!.cookMinutes)) + 1, 'the due time was not recomputed after the swap');
+    assert.equal(queued.dueAt, queued.firedAt + Math.max(...queued.items.map((i) => s.menu.find((m) => m.id === i.menuItemId)!.cookMinutes)) + RUNNER_MIN, 'the due time was not recomputed after the swap');
   }
   const cooking = s.tickets.find((t) => t.items.some((i) => i.status === 'cooking'))!;
   const onTheStove = cooking.items.find((i) => i.status === 'cooking')!;
   refused(swapTicketItem(s, { ticketId: cooking.id, menuItemId: onTheStove.menuItemId }, 'agent'), 'swapping something already on the stove', 'cooking');
+}
+
+// --- Running the food ----------------------------------------------------------
+// A course goes out together or not at all, and delivering it by hand beats the house
+// runner — which is the whole reason RUNNER_MIN is wide enough to lose food in.
+
+{
+  const s = peak();
+  const menu = new Map(s.menu.map((m) => [m.id, m]));
+
+  refused(deliverTicket(s, { ticketId: 'tk-nope' }, 'agent'), 'delivering a ticket that is not there');
+
+  const cooking = s.tickets.find((t) => t.items.some((i) => i.status === 'queued' || i.status === 'cooking'))!;
+  refused(deliverTicket(s, { ticketId: cooking.id }, 'agent'), 'running food that is still cooking', 'stove');
+
+  // The demo board must have something to run, or the button is dead on camera.
+  const waiting = s.tickets.filter((t) => t.deliveredAt === null && t.items.every((i) => i.status === 'plated'));
+  assert.ok(waiting.length > 0, 'nothing is plated and undelivered at 7:15 — the deliver verb has nothing to do');
+
+  const t = waiting[0];
+  const party = s.parties.find((p) => p.id === t.partyId)!;
+  must(deliverTicket(s, { ticketId: t.id }, 'agent'), 'running a fully plated course');
+  assert.equal(t.deliveredAt, s.shift.clock, 'the delivery was not stamped at the current minute');
+  assert.ok(t.items.every((i) => i.status === 'served'), 'a delivered course left lines short of the table');
+  assert.equal(ticketServedAt(t, menu), s.shift.clock, 'a delivered ticket still serves on the house runner');
+  refused(deliverTicket(s, { ticketId: t.id }, 'human'), 'delivering the same course twice', 'already');
+
+  // A pin does not gate service. Pinning the party must not strand their dinner.
+  const other = s.tickets.find((x) => x.deliveredAt === null && x.id !== t.id && x.items.every((i) => i.status === 'plated'));
+  if (other) {
+    const them = s.parties.find((p) => p.id === other.partyId)!;
+    them.pinned = true;
+    must(deliverTicket(s, { ticketId: other.id }, 'agent'), 'running food to a pinned party');
+  }
+
+  // The payoff: dwell starts from the delivery, so running it early turns the table early.
+  assert.ok(party.courseAt <= s.shift.clock, 'the party stamp ran ahead of the clock');
 }
 
 // --- Service notes -------------------------------------------------------------
@@ -765,7 +802,7 @@ for (const template of ['banquet', 'communal'] as const) {
 }
 
 console.log(
-  `mutations ok — 19 mutations, ${new Set(fired).size} conflict rules all firing, ` +
+  `mutations ok — 20 mutations, ${new Set(fired).size} conflict rules all firing, ` +
     'refusals never write, pins refuse both actors, only humans unpin or override, ' +
     'undo rewinds the board and not the clock. Design edits refuse mid-service, placement reports instead of refusing, and only a table that is clear can be pinned.',
 );

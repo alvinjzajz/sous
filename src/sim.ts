@@ -18,8 +18,14 @@ import type {
 
 /** Minutes between sitting down and the drinks order going in. */
 const ORDER_MIN = 4;
-/** Minutes between the last item plating and the course reaching the table. */
-const RUNNER_MIN = 1;
+/**
+ * Minutes a plated course sits in the window before the house runner takes it.
+ *
+ * Wide enough to lose food in, which is the point: `deliverTicket` beats it, so running
+ * the food by hand or by tool measurably pulls a party's whole dwell clock forward. At
+ * the old value of 1 the verb existed but could never save anything visible.
+ */
+const RUNNER_MIN = 4;
 /** Minutes a party lingers over a course after it lands, before the next is fired. */
 const DWELL: Record<MenuCourse | 'check', number> = {
   drinks: 9, apps: 12, mains: 22, dessert: 10, check: 7,
@@ -113,10 +119,18 @@ export function ticketPlatedAt(t: Ticket, menu: Map<string, MenuItem>): number |
   return last === -Infinity ? null : last;
 }
 
-/** Shift-minute the course reaches the table. A course lands together or not at all. */
+/**
+ * Shift-minute the course reaches the table. A course lands together or not at all.
+ *
+ * `ticketPlatedAt` nulls out a ticket the kitchen has not picked up, so stamping
+ * `deliveredAt` on one cannot conjure a serve time. That is only a backstop: it gates on
+ * STARTED, not finished, so a ticket mid-cook still projects a plate time. The real gate
+ * is `deliverTicket`, which refuses anything queued or cooking.
+ */
 export function ticketServedAt(t: Ticket, menu: Map<string, MenuItem>): number | null {
   const plated = ticketPlatedAt(t, menu);
-  return plated === null ? null : plated + RUNNER_MIN;
+  if (plated === null) return null;
+  return t.deliveredAt ?? plated + RUNNER_MIN;
 }
 
 /**
@@ -279,6 +293,7 @@ export function fireTicket(
     items,
     firedAt: s.shift.clock,
     dueAt: s.shift.clock + cook + RUNNER_MIN,
+    deliveredAt: null,
     provenance,
   };
 }

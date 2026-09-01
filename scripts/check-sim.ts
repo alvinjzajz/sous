@@ -8,7 +8,8 @@
 import assert from 'node:assert/strict';
 import { seedState } from '../src/seed.ts';
 import {
-  LAST_SEAT, SERVICE_END, advanceTo, openBookings, stationLoad, tick, ticketServedAt,
+  LAST_SEAT, RUNNER_MIN, SERVICE_END, advanceTo, openBookings, stationLoad, tick,
+  ticketPlatedAt, ticketServedAt,
 } from '../src/sim.ts';
 import type { CourseStage, SousState } from '../src/types.ts';
 import { fmtClock } from '../src/types.ts';
@@ -164,6 +165,42 @@ assert.ok(
   at715.tickets.some((t) => t.items.some((i) => i.status === 'cooking')),
   'nothing is on the stove at 7:15 PM',
 );
+
+// --- The house runner, and beating it ----------------------------------------
+// An untouched ticket goes out RUNNER_MIN after its last plate. A delivered one goes
+// out the minute somebody ran it, which is what pulls the party's dwell clock forward.
+
+{
+  const menu = new Map(at715.menu.map((m) => [m.id, m]));
+  const plated = at715.tickets.filter(
+    (t) => t.deliveredAt === null && t.items.every((i) => i.status === 'plated'),
+  );
+  assert.ok(plated.length > 0, 'no course is sitting in the window at 7:15 PM — nothing to run');
+  for (const t of plated) {
+    assert.equal(
+      ticketServedAt(t, menu),
+      ticketPlatedAt(t, menu)! + RUNNER_MIN,
+      `${t.id} is undelivered but not waiting on the house runner`,
+    );
+  }
+  const hand = structuredClone(plated[0]);
+  hand.deliveredAt = at715.shift.clock;
+  assert.equal(ticketServedAt(hand, menu), at715.shift.clock, 'running the food by hand did not land it');
+  assert.ok(
+    ticketServedAt(hand, menu)! < ticketServedAt(plated[0], menu)!,
+    'delivering by hand was no faster than waiting for the runner, so the verb is pointless',
+  );
+
+  // A line the kitchen has not picked up yet has no start time, so the whole ticket has
+  // no serve time — stamping deliveredAt cannot conjure one. That is the backstop;
+  // deliverTicket refusing anything queued or cooking is the actual gate.
+  const unstarted = at715.tickets.find((t) => t.items.some((i) => i.startedAt === null));
+  if (unstarted) {
+    const forced = structuredClone(unstarted);
+    forced.deliveredAt = at715.shift.clock;
+    assert.equal(ticketServedAt(forced, menu), null, 'a course nobody has started claimed it reached the table');
+  }
+}
 
 // --- Determinism: same seed, same night --------------------------------------
 
