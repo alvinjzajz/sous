@@ -9,18 +9,21 @@ A submission for [the WebMCP Challenge](https://webmcp.devpost.com/). WebMCP let
 page register tools an AI agent can call directly, so the agent and the person are working
 on the *same live page* rather than through an API.
 
-**Status: in progress.** Days 1 to 4 of 6 are complete — domain model, seed scenario,
+**Status: in progress.** Days 1 to 5 of 6 are complete — domain model, seed scenario,
 floor-plan renderer, the simulation engine, the mutation layer with its undo stack and
-conflict engine, and the whole human interface: six detail panes, drag-and-drop layout,
-design tools, saved floor plans, the waitlist and reservation book, and the agent activity
-rail. **The WebMCP tool surface is still to come, so nothing below about tools describes
-shipped code yet**; it describes what is being built.
+conflict engine, the whole human interface (six detail panes, drag-and-drop layout, design
+tools, saved floor plans, the waitlist and reservation book, the agent activity rail), and
+**all 30 WebMCP tools, registered and tested against Chrome's native implementation**.
+Day 6 is the menu pane, autosave, deploy and the demo video.
 
-Everything the tools will do, a person can already do, through the same functions. Every
-button in the app calls one of the nineteen plain functions in `src/mutations.ts` via
-`sous.run(fn, by)`, and a tool body is `sous.run(fn, 'agent')` and nothing else — which is
-why a pin refusal cannot drift between the two surfaces. Pins, provenance, conflict
-overrides, the design-mode gate and the activity rail are all real today.
+Everything the tools do, a person can do too, through the same functions. Every button in
+the app calls one of the twenty plain functions in `src/mutations.ts` via `sous.run(fn,
+by)`, and **a tool body is `sous.run(fn, 'agent')` and nothing else** — which is why a pin
+refusal cannot drift between the two surfaces. The refusal sentence a button shows is the
+sentence the agent is handed.
+
+Open the agent panel in the top left to see all 30 tools, what each one does, and whether
+the browser has registered them.
 
 **Two rules carry the collaboration, and both are enforced in one place:**
 
@@ -65,7 +68,7 @@ npm run dev
 | Script | What |
 |---|---|
 | `npm run dev` | Vite dev server |
-| `npm run check` | All three check scripts: seed consistency (seat totals, integer geometry, table overlap, 915 mm aisle clearance, section coverage, menu routing), a headless open-to-close shift, and the mutation path (every conflict rule fires, no refusal writes, pins refuse both actors, undo rewinds the board and not the clock) |
+| `npm run check` | All four check scripts: seed consistency (seat totals, integer geometry, table overlap, 915 mm aisle clearance, section coverage, menu routing), a headless open-to-close shift, the mutation path (every conflict rule fires, no refusal writes, pins refuse both actors, undo rewinds the board and not the clock), and the tool surface (Chrome's four character budgets, the 1.5 KB output ceiling, annotation accuracy, author-controlled enums, unescapable untrusted spans) |
 | `npm run build` | Type-check and production build |
 | `npm run lint` | oxlint |
 
@@ -78,8 +81,9 @@ To use the agent side you need WebMCP enabled: Chrome with
 ## How it is built
 
 React + Vite + TypeScript. **No backend, no database, no auth** — state lives in memory.
-No chart, drag or state-management libraries. (`localStorage` autosave is planned, not yet
-implemented.)
+No chart, drag or state-management libraries — and no MCP client library either; the
+registration is about a hundred lines against the browser API. (`localStorage` autosave is
+planned, not yet implemented; named floor plans already persist.)
 
 - `src/types.ts` — the domain model. All geometry is in **cells** (1 cell = 0.125 m),
   integers only. Timestamps are absolute shift-minutes; elapsed values are derived at
@@ -92,6 +96,17 @@ implemented.)
 - `src/FloorPlan.tsx` — the floor, as inline SVG rather than canvas. Every table is a real
   focusable `role="button"` node, so click handling, focus rings, keyboard navigation and
   screen-reader labels come free.
+- `src/tools.ts` — the 30 WebMCP tools, definitions and implementations in one file so a
+  schema and its executor cannot drift apart. Every mutating body is `sous.run(fn,
+  'agent')` and nothing else. Output is compact **text**, not JSON: the floor plan as JSON
+  is 2196 bytes against Chrome's ~1.5 KB ceiling, and 648 as text.
+- `src/webmcp.ts` — registration and the trust boundary. Registers once on mount with the
+  implementations behind a ref, so tools never go stale and never re-register; both
+  `document.modelContext` and `navigator.modelContext`, deduped, with `AbortController`
+  cleanup. **A refusal comes back as an MCP result carrying `isError`, not a thrown
+  error** — tested against Chrome's real implementation, where a throw reaches the agent
+  as a generic `UnknownError` with the message stripped, which would have silently
+  replaced every refusal sentence in the app.
 - `src/sim.ts` — the simulation engine. `tick(state) → state` is pure and React-free, so
   it runs headless. Parties advance on dwell timers; items do not start cooking when a
   ticket is fired but when a slot frees at their station, so fire time and start time are
