@@ -94,6 +94,11 @@ export default function App() {
   const mcpState = !mcp.supported
     ? 'fallback'
     : mcp.registered.length < TOOL_DEFS.length ? 'connecting' : 'live';
+  const mcpStatusLine = mcpState === 'live'
+    ? `Native browser WebMCP is connected. All ${TOOL_DEFS.length} tools registered.`
+    : mcpState === 'connecting'
+      ? `Checking browser WebMCP… ${mcp.registered.length} of ${TOOL_DEFS.length} registered.`
+      : 'Browser bridge ready · native WebMCP unavailable. Enable chrome://flags/#enable-webmcp-testing, or call them on window.__sous.';
 
   return (
     <div className="app">
@@ -115,19 +120,18 @@ export default function App() {
               `popovertarget` are platform features, so there is no open/closed state,
               no outside-click handler and no focus trap to get wrong here. */}
           <div className={`mcp mcp--${mcpState}`}>
-            <button className="mcpTrigger" type="button" popoverTarget="mcpTools">
+            <button
+              className="mcpTrigger"
+              type="button"
+              popoverTarget="mcpTools"
+              // The dot carries the state visually; this carries it for everyone else.
+              title={mcpStatusLine}
+              aria-label={`WebMCP: ${TOOL_DEFS.length} tools. ${mcpStatusLine}`}
+            >
               <span className="eyebrow">WEBMCP</span>
               <b>{TOOL_DEFS.length} tools</b>
               <span className="mcpChevron" aria-hidden="true">›</span>
             </button>
-            <p className="mcpStatus">
-              {mcpState === 'live'
-                ? `Connected · ${mcp.registered.length}/${TOOL_DEFS.length} registered`
-                : mcpState === 'connecting'
-                  ? `Checking browser WebMCP… ${mcp.registered.length}/${TOOL_DEFS.length}`
-                  : 'Browser bridge ready · native WebMCP unavailable'}
-              {mcp.errors.length > 0 && <em> {mcp.errors.length} failed.</em>}
-            </p>
           </div>
 
           <div id="mcpTools" popover="auto" className={`mcpPanel mcpPanel--${mcpState}`}>
@@ -135,11 +139,8 @@ export default function App() {
               <div>
                 <strong>WebMCP · {TOOL_DEFS.length} tools</strong>
                 <p>
-                  {mcpState === 'live'
-                    ? `Native browser WebMCP is connected. ${mcp.registered.length} of ${TOOL_DEFS.length} tools registered.`
-                    : mcpState === 'connecting'
-                      ? 'Checking browser WebMCP…'
-                      : 'Browser bridge ready · native WebMCP unavailable. Enable chrome://flags/#enable-webmcp-testing, or call them on window.__sous.'}
+                  {mcpStatusLine}
+                  {mcp.errors.length > 0 && <em> {mcp.errors.length} failed to register.</em>}
                 </p>
               </div>
               <button className="chevron chevron--sm" type="button" popoverTarget="mcpTools" popoverTargetAction="hide" title="Close">

@@ -789,8 +789,11 @@ button { font-family: inherit; }
   color: var(--ink);
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.22);
 }
-.mcpPanel--live { border-left-color: var(--sage); }
-.mcpPanel--connecting { border-left-color: var(--ink-soft); }
+/* [popover] is carried on these too. Without it the base rule above — a class PLUS an
+   attribute — outranks a bare class and the panel stays amber while the rail goes green.
+   The rail's own pair are both single classes, which is why only this one broke. */
+.mcpPanel--live[popover] { border-left-color: var(--sage); }
+.mcpPanel--connecting[popover] { border-left-color: var(--ink-soft); }
 .mcpPanel[popover]::backdrop { background: rgb(0 0 0 / 0.12); }
 
 @supports (anchor-name: --a) {
@@ -817,16 +820,20 @@ button { font-family: inherit; }
 .mcpPanelHead p { margin: 3px 0 0; font-size: 10px; line-height: 1.4; color: var(--ink-soft); }
 .mcpPanelHead .chevron { flex: none; margin-left: auto; }
 
-.mcpPanel .toolList { list-style: none; margin: 0; padding: 8px 12px; display: grid; gap: 7px; }
+.mcpPanel .toolList { list-style: none; margin: 0; padding: 4px 12px 8px; display: grid; }
 .mcpPanel .toolList li {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
 }
+.mcpPanel .toolList li:first-child { border-top: 0; }
 .mcpPanel .toolList code {
   font-family: inherit;
   font-size: 11px;
+  font-weight: 700;
   color: var(--ink);
 }
 /* The summary spans the full row under the name, so neither has to be truncated. */

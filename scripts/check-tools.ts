@@ -82,6 +82,16 @@ for (const d of defs) {
   if (read && !TRUSTED_OUTPUT.includes(d.name)) {
     assert.equal(d.annotations?.untrustedContentHint, true, `${d.name} returns user text and must be marked untrusted`);
   }
+  // Chrome's WebMCP surfaces only readOnlyHint and untrustedContentHint — destructiveHint
+  // is dropped from the manifest entirely (measured Sep 1 against the real API with
+  // chrome://flags/#enable-webmcp-testing on). The annotation stays, for hosts that do
+  // carry it, but the DESCRIPTION has to say so too or the model never learns it.
+  if (DESTRUCTIVE.includes(d.name)) {
+    assert.ok(
+      /destructive/i.test(d.description),
+      `${d.name} is destructive, and Chrome drops that annotation — its description must say so`,
+    );
+  }
 }
 
 // --- Enums come from author-controlled registries only (CLAUDE.md #7) ----------

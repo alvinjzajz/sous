@@ -106,15 +106,36 @@ export function useWebMCP(defs: ToolDef[], impls: Record<string, Impl>): Status 
         inputSchema,
         annotations,
         execute: async (args: Record<string, unknown> = {}) => {
-          validate(args ?? {}, t.inputSchema, t.name);
-          let text = implRef.current[t.name](args ?? {});
+          let text: string;
+          let failed = false;
+          try {
+            validate(args ?? {}, t.inputSchema, t.name);
+            text = implRef.current[t.name](args ?? {});
+          } catch (e) {
+            // A REFUSAL IS A RESULT, NOT A THROWN ERROR — measured, not assumed.
+            //
+            // SOUS_PLAN.md §3 said to throw, and on Sep 1 that was tested against Chrome's
+            // real WebMCP with the flag on: a thrown Error reaches the caller as
+            // `UnknownError: Tool was executed but the invocation failed`, with our message
+            // gone from message, cause AND stack. Every refusal sentence in this app —
+            // "T12 is pinned by the host" — would have been replaced by that.
+            //
+            // MCP's own convention agrees: a tool that ran and declined is a result
+            // carrying isError, while a throw is for protocol faults. So the sentence
+            // comes back as content, and mutations.ts is untouched — a refusal is still a
+            // value there, exactly as CLAUDE.md #5 requires.
+            text = e instanceof Error ? e.message : String(e);
+            failed = true;
+          }
           if (text.length > MAX_OUTPUT) {
             text = `${text.slice(0, MAX_OUTPUT - 80)}\n… truncated. Narrow the question with a filter.`;
           }
           // Let React paint before the agent gets its result, so a person watching the
           // screen sees the change land before the model starts talking about it.
           if (!annotations.readOnlyHint) await new Promise((r) => setTimeout(r, 0));
-          return { content: [{ type: 'text', text }] };
+          return failed
+            ? { content: [{ type: 'text', text }], isError: true }
+            : { content: [{ type: 'text', text }] };
         },
       };
     });
