@@ -145,10 +145,12 @@ registration is about a hundred lines against the browser API.
   are read defensively — the blob is editable by anyone with devtools open, so a stale or
   hand-edited value degrades to the seed scenario rather than white-screening the app, and
   `JSON.parse` runs with a reviver that drops `__proto__`, `constructor` and `prototype`.
-- `public/_headers` and `vercel.json` — the same security headers for either host. Sous
-  loads nothing third-party, so the CSP is a real `default-src 'self'`, with
+- `vercel.json` — the security headers, and immutable caching for the content-hashed
+  assets. Sous loads nothing third-party, so the CSP is a real `default-src 'self'`, with
   `'unsafe-inline'` on style-src only because React writes a few values as inline style
-  attributes. Verified by serving the build under those exact headers, not by reading them.
+  attributes. Verified against the deployed origin rather than read: an injected external
+  script, an inline script, an outbound `fetch` and an attempt to frame the page are all
+  blocked.
 - `scripts/check-seed.ts`, `scripts/check-sim.ts`, `scripts/check-mutations.ts` — the checks
   above. The simulation check
   walks a whole shift a minute at a time and asserts, every minute, that nothing finishes
