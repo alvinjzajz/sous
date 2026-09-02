@@ -12,13 +12,13 @@ import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import FloorPlan, { HOST_ID } from './FloorPlan.tsx';
 import {
-  BookingRows, FloorPane, HostPane, SectionPane, StationPane, TablePane, TicketPane,
-  WaitRows,
+  BookingRows, FloorPane, HostPane, MENU_ID, MenuPane, SectionPane, StationPane, TablePane,
+  TicketPane, WaitRows,
 } from './Panes.tsx';
 import { updateTable } from './mutations.ts';
 import type { Result } from './mutations.ts';
 import { floorPlan, menu } from './seed.ts';
-import { openBookings, serviceOver, stationLoad } from './sim.ts';
+import { inWindow, openBookings, serviceOver, stationLoad } from './sim.ts';
 import { useSous } from './store.ts';
 import { makeImpls, toolDefs } from './tools.ts';
 import { useWebMCP } from './webmcp.ts';
@@ -72,13 +72,14 @@ export default function App() {
   const station = plan.stations.find((s) => s.id === selectedId) ?? null;
   const section = plan.sections.find((s) => s.id === selectedId) ?? null;
   const atHost = selectedId === HOST_ID;
+  const atMenu = selectedId === MENU_ID;
   const paneName = table
     ? `TABLE ${table.name}`
     : station
       ? station.type === 'pass' ? 'THE PASS' : station.name.toUpperCase()
       : section
         ? `${section.name.toUpperCase()} SECTION`
-        : atHost ? 'HOST STAND' : 'FLOOR';
+        : atHost ? 'HOST STAND' : atMenu ? 'THE MENU' : 'FLOOR';
 
   const errors = conflicts.filter((c) => c.severity === 'error');
   const warnings = conflicts.filter((c) => c.severity === 'warn');
@@ -312,6 +313,7 @@ export default function App() {
             parties={state.parties}
             cooking={stationLoad(state)}
             queued={stationLoad(state, 'queued')}
+            atPass={inWindow(state).length}
             conflicts={conflicts}
             selectedId={selectedId}
             onSelect={setSelectedId}
@@ -373,6 +375,8 @@ export default function App() {
               <SectionPane {...paneProps} section={section} />
             ) : atHost ? (
               <HostPane {...paneProps} />
+            ) : atMenu ? (
+              <MenuPane {...paneProps} />
             ) : (
               <FloorPane {...paneProps} />
             )}

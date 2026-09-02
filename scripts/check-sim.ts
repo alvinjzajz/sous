@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { seedState } from '../src/seed.ts';
 import {
-  LAST_SEAT, RUNNER_MIN, SERVICE_END, advanceTo, openBookings, stationLoad, tick,
+  LAST_SEAT, RUNNER_MIN, SERVICE_END, advanceTo, inWindow, openBookings, stationLoad, tick,
   ticketPlatedAt, ticketServedAt,
 } from '../src/sim.ts';
 import type { CourseStage, SousState } from '../src/types.ts';
@@ -172,9 +172,10 @@ assert.ok(
 
 {
   const menu = new Map(at715.menu.map((m) => [m.id, m]));
-  const plated = at715.tickets.filter(
-    (t) => t.deliveredAt === null && t.items.every((i) => i.status === 'plated'),
-  );
+  // The shared predicate, not a private copy: the pass block on the floor and the Deliver
+  // control in the ticket rail read the same function, so the board, the button and this
+  // check cannot drift apart.
+  const plated = inWindow(at715);
   assert.ok(plated.length > 0, 'no course is sitting in the window at 7:15 PM — nothing to run');
   for (const t of plated) {
     assert.equal(
@@ -199,6 +200,27 @@ assert.ok(
     const forced = structuredClone(unstarted);
     forced.deliveredAt = at715.shift.clock;
     assert.equal(ticketServedAt(forced, menu), null, 'a course nobody has started claimed it reached the table');
+  }
+
+  // inWindow is what the pass block on the floor counts and what the Deliver button
+  // gates on, so it has to mean exactly "deliverTicket would accept this".
+  const ids = new Set(plated.map((t) => t.id));
+  for (const t of at715.tickets) {
+    const runnable = t.deliveredAt === null && t.items.every((i) => i.status === 'plated');
+    assert.equal(ids.has(t.id), runnable, `inWindow disagrees with deliverTicket about ${t.id}`);
+  }
+  assert.ok(
+    plated.every((t) => ticketPlatedAt(t, menu) !== null),
+    'a course in the window has no plate time, so the rail could not show how long it has sat',
+  );
+  // Earliest plated first: the rail and the floor both read as a queue, not a set.
+  const platedAts = plated.map((t) => ticketPlatedAt(t, menu)!);
+  assert.deepEqual(platedAts, [...platedAts].sort((x, y) => x - y), 'inWindow is not ordered oldest first');
+
+  // And nothing on the menu routes to the pass, which is WHY the floor needed a separate
+  // count: stationLoad can never answer "what is waiting to be run".
+  for (const status of ['cooking', 'queued', 'plated'] as const) {
+    assert.equal(stationLoad(at715, status).pass ?? 0, 0, `stationLoad found ${status} items at the pass`);
   }
 }
 

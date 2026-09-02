@@ -134,6 +134,24 @@ export function ticketServedAt(t: Ticket, menu: Map<string, MenuItem>): number |
 }
 
 /**
+ * Courses plated and still sitting in the window, earliest plated first.
+ *
+ * This is NOT stationLoad('plated'): "what is waiting to be run" is a different question
+ * from "what is cooking", and it is asked per TICKET, because a course goes out together
+ * or not at all — which is exactly what deliverTicket takes. Nothing on the menu routes
+ * to the pass, so stationLoad can never answer it: load['pass'] is structurally 0.
+ *
+ * Three callers share it — the pass block on the floor, the Deliver control in the
+ * ticket rail, and check-sim — so the board, the button and the check cannot drift.
+ */
+export function inWindow(s: SousState): Ticket[] {
+  const menu = byId(s.menu);
+  return s.tickets
+    .filter((t) => t.deliveredAt === null && t.items.every((i) => i.status === 'plated'))
+    .sort((a, b) => (ticketPlatedAt(a, menu) ?? 0) - (ticketPlatedAt(b, menu) ?? 0));
+}
+
+/**
  * Items in a given state at each station. One order line is one slot, whatever the qty.
  * `cooking` is the station's live load against its concurrency; `queued` is its backlog.
  */

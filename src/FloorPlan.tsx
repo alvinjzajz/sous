@@ -183,6 +183,15 @@ interface Props {
   cooking?: Record<string, number>;
   /** Items fired and waiting for a slot at each station type. */
   queued?: Record<string, number>;
+  /**
+   * Courses plated and waiting to be run, from inWindow(state).length.
+   *
+   * A separate count rather than a sixth entry in `cooking`, because nothing on the menu
+   * routes to the pass — load['pass'] is structurally 0, so the block read "0 at the
+   * pass" all night however busy the window was. It is a ticket count, not an item one:
+   * a course goes out together, which is what deliver_ticket takes.
+   */
+  atPass?: number;
   /** From computeConflicts. Anything targeting a table or station gets marked. */
   conflicts?: Conflict[];
   selectedId: string | null;
@@ -198,7 +207,7 @@ interface Props {
 }
 
 export default function FloorPlan({
-  plan, parties, cooking = {}, queued = {}, conflicts = [], selectedId, onSelect,
+  plan, parties, cooking = {}, queued = {}, atPass = 0, conflicts = [], selectedId, onSelect,
   onMove, canDrag = false,
 }: Props) {
   const { bounds } = plan;
@@ -323,19 +332,24 @@ export default function FloorPlan({
       {plan.stations.map((s) => {
         const x = s.x - s.w / 2;
         const y = s.y - s.h / 2;
-        const busy = cooking[s.type] ?? 0;
-        const waiting = queued[s.type] ?? 0;
+        const pass = s.type === 'pass';
+        // The pass counts courses in the window; a burner counts items on it.
+        const busy = pass ? atPass : cooking[s.type] ?? 0;
+        // Food sitting in the window IS a backlog, so it runs hot on the same rule.
+        const waiting = pass ? atPass : queued[s.type] ?? 0;
         // The pass is a hand-off, not a burner: it gets the ticket rail pane, not slots.
-        const slots = s.type === 'pass' ? 0 : s.concurrency;
+        const slots = pass ? 0 : s.concurrency;
         // SLOT_PITCH cells per slot, a 2-cell block in each. Integer cells throughout (§6.1).
         const runStart = s.x - Math.round((slots * SLOT_PITCH - 1) / 2);
-        const label = [
-          s.name,
-          slots ? `${busy} of ${s.concurrency} cooking` : `${busy} at the pass`,
-          waiting ? `${waiting} waiting for a slot` : null,
-        ]
-          .filter(Boolean)
-          .join(', ');
+        const label = pass
+          ? `${s.name}, ${busy === 1 ? '1 course' : `${busy} courses`} in the window`
+          : [
+              s.name,
+              `${busy} of ${s.concurrency} cooking`,
+              waiting ? `${waiting} waiting for a slot` : null,
+            ]
+              .filter(Boolean)
+              .join(', ');
         return (
           <g
             key={s.id}
@@ -359,13 +373,21 @@ export default function FloorPlan({
             <rect x={x + 1} y={y + s.h - 1.5} width={s.w - 2} height="0.5" fill="#0c1a14" opacity="0.4" />
             <PixelText
               x={s.x}
-              y={slots ? s.y - 2 : s.y}
+              y={slots || busy ? s.y - 2 : s.y}
               size={3}
               fill="var(--select)"
               shadow="rgba(12,26,20,.55)"
             >
               {s.name.toUpperCase()}
             </PixelText>
+
+            {/* The pass has no burners to fill, so it carries its count as a number.
+                Blank when the window is empty — an idle pass should read as idle. */}
+            {pass && busy > 0 && (
+              <PixelText x={s.x} y={s.y + 3} size={3} fill="var(--select)" shadow="rgba(12,26,20,.55)">
+                {`${busy} UP`}
+              </PixelText>
+            )}
 
             {/* One block per concurrency slot, filled while something is on it. Occupancy
                 as a count of filled blocks, so the kitchen reads in greyscale too. */}

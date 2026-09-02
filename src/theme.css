@@ -484,11 +484,14 @@ button { font-family: inherit; }
 .ticketHead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
   font-size: 13px;
 }
+/* The table name takes the slack; the chips stay pinned to the right, however many
+   there are. A ticket can be both late and sitting in the window. */
+.ticketHead strong { margin-right: auto; }
+.ticketHead .chip { cursor: default; }
 
 /* A row that ends in a button, not a label: push the button to the rail edge. */
 .sections li .tbtn { margin-left: auto; }
@@ -874,3 +877,78 @@ button { font-family: inherit; }
 .mcpKey .by:first-child { margin-left: 0; }
 .mcpPanel .by, .mcpKey .by { min-width: 13px; padding: 1px 0; text-align: center; font-size: 9px; }
 .by--gone { color: var(--alert); border-color: var(--alert); }
+
+/* The menu board and the order picker ------------------------------------- */
+
+/* A stat cell that is also the way into another pane (FLOOR -> THE MENU). Styled as
+   text, not a button: it sits in a row of plain numbers and must not shout. */
+.statLink {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--sage-dk);
+  cursor: pointer;
+  text-align: left;
+}
+.statLink:hover { text-decoration: underline; }
+
+/* Two lines per dish — name over its routing — so a 22-item board still scans. */
+.menuList, .pickList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.menuList li, .pickList li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 10px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  font-size: 12.5px;
+}
+.menuList li:nth-child(odd), .pickList li:nth-child(odd) { background: var(--paper); }
+.menuName { grid-column: 1; }
+.menuMeta {
+  grid-column: 1;
+  grid-row: 2;
+  font-size: 11px;
+  color: var(--ink-mute);
+}
+.menuList li button, .pickList li input { grid-column: 2; grid-row: 1 / span 2; }
+
+/* 86'd reads as struck-through, not just faded: greyscale and a compressed video frame
+   both survive a line through the name (§6.1's rule about colour-only signals). */
+.is86 .menuName, .is86 label { text-decoration: line-through; color: var(--ink-mute); }
+
+.pickList label { grid-column: 1; }
+.pickList input {
+  width: 52px;
+  padding: 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  font-family: var(--pixel);
+  font-size: 10px;
+  color: var(--ink);
+  text-align: center;
+}
+.pickList input:disabled { opacity: 0.4; }
+
+.picker { margin-top: 12px; }
+.picker > summary {
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--sage-dk);
+  cursor: pointer;
+}
+.picker > summary::marker { color: var(--ink-mute); }
+.picker .actions { margin-top: 10px; }
+.picker .hint { flex: 1 1 100%; margin-left: 0; }
