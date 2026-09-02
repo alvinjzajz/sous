@@ -87,6 +87,31 @@ const board = (s: SousState): string => {
   return `\nOn the board: ${head}${c.length > 3 ? ` (+${c.length - 3} more, call check_conflicts)` : ''}`;
 };
 
+/**
+ * Chrome truncates a tool result at roughly 1.5 KB, SILENTLY (CLAUDE.md #12). A read
+ * whose length depends on how much a person has typed cannot be kept inside that by
+ * hoping — so this drops rows until the whole thing fits and says how many it dropped.
+ *
+ * Found by measurement, not by reading: once the host stand could take bookings, a book
+ * of THIRTEEN with long names and notes put get_waitlist at 1548 bytes, over the ceiling
+ * already, and the book caps at 40. A truncated list reads to a model as a board that
+ * has fewer bookings than it does, which is worse than a short one.
+ */
+const BUDGET = 1400; // under Chrome's ~1536 with room for the tail line
+function capLines(rows: string[], what: string, budget = BUDGET): string {
+  if (!rows.length) return '';
+  const size = (xs: string[], tail = '') => new TextEncoder().encode(xs.join('\n') + tail).length;
+  if (size(rows) <= budget) return rows.join('\n');
+  let n = rows.length;
+  let tail = '';
+  while (n > 0) {
+    tail = `\n(+${rows.length - n} more ${what}; narrow with a filter or call get_table)`;
+    if (size(rows.slice(0, n), tail) <= budget) break;
+    n--;
+  }
+  return rows.slice(0, n).join('\n') + tail;
+}
+
 // --- The mutation bridge -----------------------------------------------------
 
 /**
@@ -230,11 +255,20 @@ export function makeImpls(sous: Sous, view: View): Record<string, Impl> {
     get_waitlist: () => {
       const s = now();
       const rows = [
+        // People standing at the door come first: they are the ones going cold.
         ...s.waitlist.map((w) => `WAIT ${w.id} ${untrusted(w.name)} party of ${w.size}, waiting since ${fmtClock(w.addedAt)}, quoted ${w.quotedMinutes} min`),
-        ...s.reservations.filter((r) => r.status !== 'seated').map((r) =>
-          `BOOK ${r.id} ${untrusted(r.name)} party of ${r.size} at ${fmtClock(r.time)} — ${r.status}${r.tableId ? ` held on ${r.tableId}` : ''}${r.notes ? ` — ${untrusted(r.notes)}` : ''}`),
+        // Earliest booking first, so what capLines drops is always the far end of the
+        // night rather than an arbitrary slice of it.
+        ...s.reservations
+          .filter((r) => r.status !== 'seated')
+          .sort((a, b) => a.time - b.time)
+          .map((r) =>
+            // A note is trimmed harder HERE than the 200 chars it is stored at: a list
+            // wants the gist, and get_table carries the whole thing. Without this, three
+            // long notes are the entire budget.
+            `BOOK ${r.id} ${untrusted(r.name)} party of ${r.size} at ${fmtClock(r.time)} — ${r.status}${r.tableId ? ` held on ${r.tableId}` : ''}${r.notes ? ` — ${untrusted(r.notes.slice(0, 60))}` : ''}`),
       ];
-      if (rows.length) return rows.join('\n');
+      if (rows.length) return capLines(rows, 'waiting or booked');
       // "Every booking is seated" is false and misleading on a board that has no book at
       // all — the shift has not started, so nobody has taken one yet. Two empties, two
       // sentences, because an agent acts differently on each.

@@ -364,7 +364,7 @@ export function TablePane({ sous, act, select, table }: PaneProps & { table: Tab
             }}
           >
             <span className="eyebrow">NAME</span>
-            <input name="name" defaultValue={table.name} maxLength={24} key={table.name} />
+            <input name="name" defaultValue={table.name} maxLength={24} autoComplete="off" key={table.name} />
             <button className="tbtn tbtn--sm" type="submit">Rename</button>
           </form>
 
@@ -941,7 +941,7 @@ export function HostPane({ sous, act, select }: PaneProps) {
             act((d) => addToWaitlist(d, { name, size }, 'human'));
           }}
         >
-          <input name="name" placeholder="Name" maxLength={40} required />
+          <input name="name" placeholder="Name" maxLength={40} autoComplete="off" required />
           <input name="size" type="number" min={1} max={20} defaultValue={2} required />
           <button className="tbtn tbtn--sm" type="submit">Add</button>
         </form>
@@ -987,7 +987,7 @@ export function HostPane({ sous, act, select }: PaneProps) {
             act((d) => addReservation(d, { name, size, time, notes }, 'human'));
           }}
         >
-          <input name="name" placeholder="Name" maxLength={40} required />
+          <input name="name" placeholder="Name" maxLength={40} autoComplete="off" required />
           <input name="size" type="number" min={1} max={20} defaultValue={2} required />
           <input name="time" type="time" defaultValue="19:30" required />
           <input name="notes" placeholder="Allergies, occasion…" maxLength={200} />
@@ -1157,7 +1157,7 @@ export function FloorPane({ sous, act, select }: PaneProps) {
                 sous.say('human', r.ok, r.message);
               }}
             >
-              <input name="name" placeholder="Save this room as…" maxLength={40} required />
+              <input name="name" placeholder="Save this room as…" maxLength={40} autoComplete="off" required />
               <button className="tbtn tbtn--sm" type="submit">Save</button>
             </form>
 

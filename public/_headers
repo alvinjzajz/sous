@@ -1,0 +1,15 @@
+# Security headers (SOUS_PLAN.md §12.2). Netlify reads this file from the publish dir;
+# Vite copies public/ into dist/ verbatim, so it ships with the build. vercel.json
+# carries the same set for a Vercel deploy — whichever host is used, the headers are the
+# same, and neither is a decision that has to be made on deploy day.
+#
+# Sous loads NOTHING third-party — no CDN, no analytics, no web fonts from Google, no
+# backend — so a real default-src 'self' is achievable here rather than aspirational.
+# 'unsafe-inline' on style-src only: React writes the section colours and the room ratio
+# as inline style attributes, and there is no script-src exception at all.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=()

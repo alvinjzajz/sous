@@ -9,15 +9,23 @@ A submission for [the WebMCP Challenge](https://webmcp.devpost.com/). WebMCP let
 page register tools an AI agent can call directly, so the agent and the person are working
 on the *same live page* rather than through an API.
 
-**Status: in progress.** Days 1 to 5 of 6 are complete — domain model, seed scenario,
-floor-plan renderer, the simulation engine, the mutation layer with its undo stack and
-conflict engine, the whole human interface (six detail panes, drag-and-drop layout, design
-tools, saved floor plans, the waitlist and reservation book, the agent activity rail), and
-**all 30 WebMCP tools, registered and tested against Chrome's native implementation**.
-Day 6 is the menu pane, autosave, deploy and the demo video.
+**Status: in progress.** Days 1 to 5 of 6 are complete, plus Day 6's morning — domain
+model, seed scenario, floor-plan renderer, the simulation engine, the mutation layer with
+its undo stack and conflict engine, the whole human interface (seven detail panes,
+drag-and-drop layout, design tools, saved floor plans, the waitlist and reservation book,
+the menu board, order entry, the agent activity rail), and **all 30 WebMCP tools,
+registered and tested against Chrome's native implementation**. What is left is
+`localStorage` autosave, deploy and the demo video.
+
+Everything a tool can do, a person can do — and as of Day 6 that is literal rather than
+aspirational. The three verbs the agent had and the person did not are all closed: 86'ing
+a dish (the menu board), running a plated course to the table (Deliver, in the pass rail),
+and choosing the dishes on an order rather than letting the kitchen compose it (the picker
+beside Fire). Taking a booking runs the other way — it is the one thing the person can do
+and the agent cannot, because the door takes bookings, not the agent.
 
 Everything the tools do, a person can do too, through the same functions. Every button in
-the app calls one of the twenty plain functions in `src/mutations.ts` via `sous.run(fn,
+the app calls one of the twenty-one plain functions in `src/mutations.ts` via `sous.run(fn,
 by)`, and **a tool body is `sous.run(fn, 'agent')` and nothing else** — which is why a pin
 refusal cannot drift between the two surfaces. The refusal sentence a button shows is the
 sentence the agent is handed.
@@ -92,14 +100,19 @@ planned, not yet implemented; named floor plans already persist.)
   sections, six stations, a 22-item menu, 12 reservations totalling 38 covers. The shift
   starts **empty** at 5:00 PM; mid-service state is produced by replaying the reservation
   book against a seeded RNG, not from a hand-authored fixture, so the same seed replays the
-  same evening.
+  same evening. The book is demand-generator scaffolding rather than part of the room, so
+  it arrives on the first tick and **stays out entirely if you have taken bookings of your
+  own** at the host stand — the same cooperative rule the auto-seater follows.
 - `src/FloorPlan.tsx` — the floor, as inline SVG rather than canvas. Every table is a real
   focusable `role="button"` node, so click handling, focus rings, keyboard navigation and
   screen-reader labels come free.
 - `src/tools.ts` — the 30 WebMCP tools, definitions and implementations in one file so a
   schema and its executor cannot drift apart. Every mutating body is `sous.run(fn,
   'agent')` and nothing else. Output is compact **text**, not JSON: the floor plan as JSON
-  is 2196 bytes against Chrome's ~1.5 KB ceiling, and 648 as text.
+  is 2196 bytes against Chrome's ~1.5 KB ceiling, and 648 as text. Any read whose length
+  depends on how much a person has typed goes through `capLines()`, which drops rows until
+  the result fits and says how many it dropped — silent truncation reads to a model as a
+  board with less on it than there is.
 - `src/webmcp.ts` — registration and the trust boundary. Registers once on mount with the
   implementations behind a ref, so tools never go stale and never re-register; both
   `document.modelContext` and `navigator.modelContext`, deduped, with `AbortController`
@@ -122,6 +135,10 @@ planned, not yet implemented; named floor plans already persist.)
 - `src/store.ts` — the two paths into state. The clock ticks straight through; only
   mutations snapshot for undo, and a snapshot never carries the clock — so undo rewinds the
   board without travelling back in time.
+- `public/_headers` and `vercel.json` — the same security headers for either host. Sous
+  loads nothing third-party, so the CSP is a real `default-src 'self'`, with
+  `'unsafe-inline'` on style-src only because React writes a few values as inline style
+  attributes. Verified by serving the build under those exact headers, not by reading them.
 - `scripts/check-seed.ts`, `scripts/check-sim.ts`, `scripts/check-mutations.ts` — the checks
   above. The simulation check
   walks a whole shift a minute at a time and asserts, every minute, that nothing finishes
