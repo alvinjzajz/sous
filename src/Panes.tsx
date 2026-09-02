@@ -1093,7 +1093,6 @@ export function FloorPane({ sous, act, select }: PaneProps) {
                 {menu.length} items ›
               </button>,
             ],
-            ['SEED', String(shift.seed)],
           ]}
         />
       </div>

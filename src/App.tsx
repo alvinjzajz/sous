@@ -352,6 +352,12 @@ export default function App() {
               </>
             )}
           </div>
+          {/* The seed is exposed so a judge can replay the demo (§2). It is provenance,
+              not a room statistic, so it reads as a footer mark rather than sitting in
+              the FLOOR pane's stats grid beside covers and table counts. */}
+          <span className="seed" title="Same seed, same night: the shift replays identically.">
+            SEED {shift.seed}
+          </span>
         </footer>
       </main>
 

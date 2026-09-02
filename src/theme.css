@@ -952,3 +952,18 @@ button { font-family: inherit; }
 .picker > summary::marker { color: var(--ink-mute); }
 .picker .actions { margin-top: 10px; }
 .picker .hint { flex: 1 1 100%; margin-left: 0; }
+
+/* The seed, bottom right. Quiet by design: it matters to a judge replaying the demo
+   and to nobody else, so it reads as a watermark, not as a control. Pixel face because
+   §6.1 puts every numeral in the chrome on Silkscreen. */
+.footbar .seed {
+  flex: none;
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
+  font-family: var(--pixel);
+  font-size: 8.5px;
+  letter-spacing: 0.7px;
+  color: var(--ink-mute);
+  opacity: 0.75;
+  cursor: default;
+}
