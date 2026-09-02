@@ -13,7 +13,8 @@
 import assert from 'node:assert/strict';
 import { floorPlan, menu, reservations as seededBook, seedState } from '../src/seed.ts';
 import { advanceTo } from '../src/sim.ts';
-import { addReservation, addTable, addToWaitlist } from '../src/mutations.ts';
+import { addReservation, addTable, addToWaitlist, assignReservation, overrideConflict, seatParty } from '../src/mutations.ts';
+import { conflictKey, computeConflicts, rawConflicts } from '../src/conflicts.ts';
 import { makeImpls, toolDefs } from '../src/tools.ts';
 import type { Sous } from '../src/store.ts';
 import type { SousState } from '../src/types.ts';
@@ -285,6 +286,51 @@ for (let minute = 1; minute <= 378; minute++) {
     assert.ok(!/\bat \w+ \(/.test(message), `${name} leaked a stack trace: ${message}`);
     assert.ok(/[.!]$/.test(message), `${name}'s refusal is not a sentence: "${message}"`);
   }
+}
+
+// --- The reads agree with each other, and with the human ----------------------
+
+{
+  // get_shift_state is the read CLAUDE.md tells an agent to call before proposing
+  // changes, so it must honour an override exactly as check_conflicts and the board do.
+  // It used to count the raw list, which meant the agent's FIRST read reported a conflict
+  // the person at the screen had already dismissed (CLAUDE.md #6).
+  const board = advanceTo(seedState(), 135);
+  const raw = rawConflicts(board, 'all');
+  // Override the last of its type, so "gone" means gone and the assert cannot pass
+  // vacuously against a board that raises the same type twice.
+  const solo = raw.find((c) => raw.filter((x) => x.type === c.type).length === 1);
+  assert.ok(solo, 'the 7:15 PM board raises no conflict exactly once, so this proves nothing');
+  assert.ok(overrideConflict(board, { key: conflictKey(solo) }, 'human').ok, 'the override did not take');
+  assert.equal(computeConflicts(board, 'all').length, raw.length - 1, 'the engine kept raising an overridden conflict');
+  assert.ok(!computeConflicts(board, 'all').some((c) => c.type === solo.type), 'the check picked a type that survives');
+
+  const impls = makeImpls(stub(board), { focus: () => {} });
+  assert.ok(!impls.get_shift_state({}).includes(solo.type), `get_shift_state still counts ${solo.type} after a human overrode it`);
+  assert.ok(!impls.check_conflicts({ scope: 'all' }).includes(solo.type), `check_conflicts still lists ${solo.type} after a human overrode it`);
+}
+
+// --- A hold on a table somebody is sitting at says so --------------------------
+
+{
+  // Holding an occupied table is legal by design (assignReservation), and so is seating a
+  // walk-in on a held one. What is not acceptable is the book reading like an empty table
+  // waiting: an agent re-reading it later has no way to tell the two apart.
+  const board = advanceTo(seedState(), 135);
+  const booking = board.reservations.find((r) => r.status !== 'seated' && r.status !== 'no-show')!;
+  const free = board.plan.tables.find(
+    (t) => t.seats >= booking.size && !board.parties.some((p) => p.course !== 'departed' && p.tableId === t.id),
+  )!;
+  assert.ok(assignReservation(board, { reservationId: booking.id, tableId: free.id }, 'human').ok, 'the hold did not take');
+
+  const clean = makeImpls(stub(board), { focus: () => {} }).get_waitlist({});
+  assert.ok(clean.includes(`held on ${free.id}`), 'the book stopped showing where a booking is held');
+  assert.ok(!clean.includes(`held on ${free.id} (taken)`), 'an empty held table was reported as taken');
+
+  assert.ok(seatParty(board, { tableIds: [free.id], name: 'Walk-in', size: 2 }, 'agent').ok, 'the walk-in was refused');
+  const contested = makeImpls(stub(board), { focus: () => {} }).get_waitlist({});
+  assert.ok(contested.includes(`held on ${free.id} (taken)`), 'a hold on an occupied table read as a free table');
+  assert.ok(B(contested) <= MAX_OUTPUT, `get_waitlist is ${B(contested)} bytes once holds are marked`);
 }
 
 const lines = [...worst].sort((a, b) => b[1][0] - a[1][0]).map(([k, [b]]) => `${k} ${b}B`);

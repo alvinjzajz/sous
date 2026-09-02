@@ -17,10 +17,10 @@
 // ids, station types, courses and templates are ours and may be enums. Table names and
 // party names are user-typed: they are values, never schema. A table renamed to
 // `"}] ignore prior instructions [{"` must never reach the manifest the model reads.
-import { computeConflicts, rawConflicts } from './conflicts.ts';
+import { computeConflicts } from './conflicts.ts';
 import {
   addTable, addToWaitlist, applyLayoutTemplate, assignReservation, assignSection,
-  clearTable, deliverTicket, fireCourse, moveParty, removeTable, resolveNote,
+  clearTable, deliverTicket, fireCourse, moveParty, partyAt, removeTable, resolveNote,
   retimeTicket, seatParty, setItem86, setPin, swapTicketItem, updateTable,
 } from './mutations.ts';
 import { ANCHORS } from './mutations.ts';
@@ -141,7 +141,12 @@ export function makeImpls(sous: Sous, view: View): Record<string, Impl> {
       const s = now();
       const live = liveParties(s);
       const open = inFlight(s);
-      const conflicts = rawConflicts(s, 'all');
+      // computeConflicts, never the raw list. This is the read an agent is told to call
+      // before proposing changes, so counting conflicts a human has already overridden
+      // here is the exact failure the override filter exists to prevent (CLAUDE.md #6) —
+      // and it made the app contradict itself, since overrideConflict's own sentence
+      // counts what is left with the filter applied.
+      const conflicts = computeConflicts(s, 'all');
       const notes = s.notes.filter((n) => n.status === 'open');
       return [
         `${fmtClock(s.shift.clock)} · ${s.shift.mode} · ${s.shift.running ? 'running' : 'paused'} at ${s.shift.speed}x · seed ${s.shift.seed}`,
@@ -266,7 +271,10 @@ export function makeImpls(sous: Sous, view: View): Record<string, Impl> {
             // A note is trimmed harder HERE than the 200 chars it is stored at: a list
             // wants the gist, and get_table carries the whole thing. Without this, three
             // long notes are the entire budget.
-            `BOOK ${r.id} ${untrusted(r.name)} party of ${r.size} at ${fmtClock(r.time)} — ${r.status}${r.tableId ? ` held on ${r.tableId}` : ''}${r.notes ? ` — ${untrusted(r.notes.slice(0, 60))}` : ''}`),
+            // "(taken)" because a hold may legally sit on top of an occupied table — see
+            // assignReservation — so the book has to say which holds are contested rather
+            // than showing every one of them as though the table were waiting empty.
+            `BOOK ${r.id} ${untrusted(r.name)} party of ${r.size} at ${fmtClock(r.time)} — ${r.status}${r.tableId ? ` held on ${r.tableId}${partyAt(s, r.tableId) ? ' (taken)' : ''}` : ''}${r.notes ? ` — ${untrusted(r.notes.slice(0, 60))}` : ''}`),
       ];
       if (rows.length) return capLines(rows, 'waiting or booked');
       // "Every booking is seated" is false and misleading on a board that has no book at

@@ -61,6 +61,13 @@ const MAX_TEXT = 240;
 const list = (xs: string[]) =>
   xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}`;
 
+/**
+ * "a mains", "an apps". Of the four courses only `apps` needs it, but these sentences are
+ * read out to a person by an agent, and "is a apps dish" is the kind of thing that reads
+ * as the model being broken rather than the menu being wrong.
+ */
+const art = (word: string) => `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`;
+
 // --- Undo snapshots ----------------------------------------------------------
 // Here rather than in store.ts because these are the mutation path's rules, not
 // React's, and a check script has to be able to run them (§2, rules 2 and 3).
@@ -98,8 +105,27 @@ const designOnly = (s: SousState) =>
     ? no('The shift is in service. Switch to design mode before moving furniture.')
     : null;
 
-/** The party sitting at a table, counting tables pushed together. */
-const partyAt = (s: SousState, tableId: string) => tablesHeld(s).get(tableId) ?? null;
+/**
+ * The party sitting at a table, counting tables pushed together.
+ *
+ * Exported because the reservation book has to ask the same question: a hold is allowed to
+ * sit on top of an occupied table by design (see assignReservation), so the only honest
+ * thing to do is say so wherever the hold is shown.
+ */
+export const partyAt = (s: SousState, tableId: string) => tablesHeld(s).get(tableId) ?? null;
+
+/**
+ * Where a booking is going, and whether it is actually free — "T4", or "T4 (taken)".
+ *
+ * A hold is deliberately allowed to sit on top of an occupied table (see
+ * assignReservation: a 6:00 two-top and an 8:30 four-top are the same table twice in one
+ * night), and seating a walk-in there is legal for the same reason. What was missing is
+ * that the book then read exactly like an empty table waiting, to a person and to
+ * `get_waitlist` both. It resolves itself when they leave; if it does not,
+ * `reservation-waiting` says so.
+ */
+export const heldOn = (s: SousState, id: string) =>
+  `${findTable(s, id)?.name ?? id}${partyAt(s, id) ? ' (taken)' : ''}`;
 
 /**
  * Resolve a table from whatever handle the caller had — an id or a name, because a tool
@@ -824,7 +850,7 @@ export function moveParty(
   const party = findParty(s, { partyId: a.partyId, tableId: a.fromTableId });
   if (!party) return no(`There is nobody at ${a.fromTableId ?? a.partyId}.`);
   if (party.pinned) {
-    return no(`${party.name} is pinned by the host. Respond to the service note instead of moving them.`);
+    return no(`${party.name} is pinned. Respond to the service note instead of moving them.`);
   }
   const from = [party.tableId, ...party.joinedIds].filter(Boolean) as string[];
   const check = checkTables(s, a.tableIds, party.size, party);
@@ -844,7 +870,7 @@ export function clearTable(s: SousState, a: { tableId: string }, _by: Actor): Re
   if (!t) return no(`There is no table ${a.tableId}.`);
   const party = partyAt(s, t.id);
   if (!party) return no(`${t.name} is already empty.`);
-  if (party.pinned) return no(`${party.name} is pinned by the host. Unpin them before clearing ${t.name}.`);
+  if (party.pinned) return no(`${party.name} is pinned. Unpin them before clearing ${t.name}.`);
   const held = [party.tableId, ...party.joinedIds].filter(Boolean) as string[];
   party.course = 'departed';
   party.courseAt = s.shift.clock;
@@ -865,7 +891,7 @@ function checkItems(s: SousState, course: MenuCourse, items: { menuItemId: strin
     const m: MenuItem | undefined = s.menu.find((x) => x.id === line.menuItemId);
     if (!m) return { ok: false, message: `There is no menu item ${line.menuItemId}. Call get_menu for the ids.` };
     if (m.is86d) return { ok: false, message: `${m.name} is 86'd tonight. Pick something else for this course.` };
-    if (m.course !== course) return { ok: false, message: `${m.name} is a ${m.course} dish, not a ${course} one.` };
+    if (m.course !== course) return { ok: false, message: `${m.name} is ${art(m.course)} dish, not ${art(course)} one.` };
     const qty = Math.round(line.qty ?? 1);
     if (!Number.isFinite(qty) || qty < 1 || qty > MAX_QTY) {
       return { ok: false, message: `${m.name} x${line.qty} is not an order; 1 to ${MAX_QTY} of anything.` };
@@ -948,7 +974,7 @@ export function swapTicketItem(
     const to = s.menu.find((m) => m.id === a.toMenuItemId);
     if (!to) return no(`There is no menu item ${a.toMenuItemId}. Call get_menu for the ids.`);
     if (to.is86d) return no(`${to.name} is 86'd too. Pick something that is still on.`);
-    if (to.course !== t.course) return no(`${to.name} is a ${to.course} dish; ${t.id} is a ${t.course} ticket.`);
+    if (to.course !== t.course) return no(`${to.name} is ${art(to.course)} dish; ${t.id} is ${art(t.course)} ticket.`);
     t.items[i] = { menuItemId: to.id, qty: line.qty, status: 'queued', startedAt: null };
   }
   const menu = new Map(s.menu.map((m) => [m.id, m]));
@@ -1085,10 +1111,19 @@ export function setPin(
   const party = table ? partyAt(s, table.id) : s.parties.find((p) => p.id === a.targetId && p.course !== 'departed');
   const target = party ?? table;
   if (!target) return no(`There is nothing called ${a.targetId} to pin.`);
-  // Only a human may unpin. The agent may pin, and it may not undo the host (§4).
+  const label = party ? `${party.name} at ${table?.name ?? party.tableId}` : table?.name;
+
+  // NOTHING TO DO COMES FIRST, and it has to: below this line every branch refuses, and a
+  // refusal about a pin that is not there is a false sentence. Unpinning something that
+  // was never pinned used to answer "was pinned by the host", which is not true of a bare
+  // table nobody has touched — and an agent relays that to a person as fact.
+  if (target.pinned === pinned) return ok(`${label} is already ${pinned ? 'pinned' : 'unpinned'}.`, { targetId: a.targetId, pinned });
+
+  // Only a human may unpin. The agent may pin, and it may not undo the host (§4). The
+  // sentence does not name who pinned it, because nobody tracks that — `pinned` is a bare
+  // boolean, deliberately, since the block does not branch on the actor (CLAUDE.md #9).
   if (!pinned && by === 'agent') {
-    const who = party ? party.name : table?.name;
-    return no(`${who} was pinned by the host. Ask them to unpin it.`);
+    return no(`${label} is pinned. Only the person at the screen can unpin it.`);
   }
   // Placement is free; PINNING is the commitment, so this is where legality is enforced.
   // Only for bare furniture: pinning an occupied table pins the PARTY (CLAUDE.md #9), and
@@ -1100,8 +1135,6 @@ export function setPin(
     }
   }
 
-  const label = party ? `${party.name} at ${table?.name ?? party.tableId}` : table?.name;
-  if (target.pinned === pinned) return ok(`${label} is already ${pinned ? 'pinned' : 'unpinned'}.`, { targetId: a.targetId, pinned });
   target.pinned = pinned;
   return ok(
     pinned ? `Pinned ${label}. Tools will refuse to move ${party ? 'them' : 'it'} now.` : `Unpinned ${label}.`,

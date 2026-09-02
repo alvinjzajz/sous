@@ -12,7 +12,7 @@ import { useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
   addReservation, addTable, addToWaitlist, applySavedLayout, assignReservation, assignSection, clearTable,
-  deliverTicket, fireCourse, overrideConflict, removeTable, reshape, resolveNote,
+  deliverTicket, fireCourse, heldOn, overrideConflict, removeTable, reshape, resolveNote,
   restoreConflict, retimeTicket, seatParty, setItem86, setPin, swapTicketItem, updateTable,
 } from './mutations.ts';
 import { conflictKey } from './conflicts.ts';
@@ -1000,7 +1000,7 @@ export function HostPane({ sous, act, select }: PaneProps) {
         <BookingRows
           entries={book}
           clock={clock}
-          nameOf={(id) => state.plan.tables.find((t) => t.id === id)?.name ?? id}
+          nameOf={(id) => heldOn(state, id)}
           action={(r) => ({
             label: 'Seat',
             disabled: false,

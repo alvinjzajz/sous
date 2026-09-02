@@ -15,7 +15,7 @@ import {
   BookingRows, FloorPane, HostPane, MENU_ID, MenuPane, SectionPane, StationPane, TablePane,
   TicketPane, WaitRows,
 } from './Panes.tsx';
-import { updateTable } from './mutations.ts';
+import { heldOn, updateTable } from './mutations.ts';
 import type { Result } from './mutations.ts';
 import { floorPlan, menu } from './seed.ts';
 import { inWindow, openBookings, serviceOver, stationLoad } from './sim.ts';
@@ -205,7 +205,7 @@ export default function App() {
                   <span>Reservations</span>
                   <b>{book.length}</b>
                 </summary>
-                <BookingRows entries={book} clock={shift.clock} brief />
+                <BookingRows entries={book} clock={shift.clock} nameOf={(id) => heldOn(state, id)} brief />
               </details>
             </li>
             {/* The door, on the manager's side of the screen. This is what replaced the

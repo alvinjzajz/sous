@@ -182,9 +182,32 @@ function occupiedTable(s: SousState): string {
   refused(updateTable(s, { tableId: t.name, seats: 6 }, 'human'), 'a human resizing a pinned table', 'pinned');
   refused(removeTable(s, { tableId: t.name }, 'agent'), 'an agent removing a pinned table', 'pinned');
   refused(assignSection(s, { tableIds: [t.name], sectionId: 'sec-rose' }, 'agent'), 're-sectioning a pinned table', 'pinned');
-  refused(setPin(s, { targetId: t.name, pinned: false }, 'agent'), 'an agent unpinning', 'host');
+  refused(setPin(s, { targetId: t.name, pinned: false }, 'agent'), 'an agent unpinning', 'person at the screen');
   must(setPin(s, { targetId: t.name, pinned: false }, 'human'), 'a human unpinning');
   must(updateTable(s, { tableId: t.name, seats: 6 }, 'agent'), 'resizing once it is unpinned');
+}
+
+{
+  // A REFUSAL HAS TO BE TRUE. Unpinning something nobody ever pinned is not a violation
+  // of anything, and it used to answer "was pinned by the host" — a sentence an agent
+  // relays to a person as fact about a table nobody has touched. Nothing-to-do is
+  // answered before any branch that refuses.
+  const s = seedState();
+  const bare = s.plan.tables[0];
+  assert.equal(bare.pinned, false, 'the seed ships a pinned table, so this proves nothing');
+  const idle = setPin(s, { targetId: bare.name, pinned: false }, 'agent');
+  must(idle, 'an agent unpinning what was never pinned');
+  assert.match(idle.message, /already unpinned/, `a no-op unpin said: "${idle.message}"`);
+  assert.doesNotMatch(idle.message, /host|pinned by/, `a no-op unpin claimed somebody had pinned it: "${idle.message}"`);
+  assert.equal(bare.pinned, false, 'the no-op unpin changed the board');
+
+  // Nobody tracks WHO pinned a thing — `pinned` is a bare boolean on purpose, because the
+  // block does not branch on the actor (CLAUDE.md #9). So no sentence may claim it was
+  // the host: the agent can pin, and then it would be reading its own work back as theirs.
+  must(setPin(s, { targetId: bare.name, pinned: true }, 'agent'), 'an agent pinning');
+  const mine = setPin(s, { targetId: bare.name, pinned: false }, 'agent');
+  refused(mine, 'an agent unpinning its own pin', 'person at the screen');
+  assert.doesNotMatch(mine.message, /host/, `the refusal blamed the host for the agent's own pin: "${mine.message}"`);
 }
 
 {
@@ -197,6 +220,34 @@ function occupiedTable(s: SousState): string {
   refused(moveParty(s, { partyId: party.id, tableIds: [emptyTable(s)] }, 'agent'), 'moving a pinned party', 'note');
   refused(clearTable(s, { tableId: table }, 'agent'), 'clearing a pinned party', 'pinned');
   refused(updateTable(s, { tableId: table, x: 40 }, 'agent'), 'moving the table out from under a pinned party', 'pinned');
+}
+
+// --- The sentences are sentences ----------------------------------------------
+
+{
+  // "is a apps dish" reads as the model being broken rather than the menu being wrong,
+  // and these are refusals an agent relays verbatim. `apps` is the only vowel-initial
+  // course, which is exactly why it went unnoticed.
+  const s = booked();
+  s.shift.mode = 'service';
+  const table = s.plan.tables.find((t) => t.seats >= 2)!;
+  must(seatParty(s, { tableIds: [table.id], name: 'Grammar', size: 2 }, 'human'), 'seating for the grammar check');
+  const party = s.parties.find((p) => p.name === 'Grammar')!;
+  const mains = s.menu.find((m) => m.course === 'mains')!;
+  const apps = s.menu.find((m) => m.course === 'apps')!;
+
+  const wrong = fireCourse(s, { partyId: party.id, course: 'apps', items: [{ menuItemId: mains.id }] }, 'agent');
+  refused(wrong, 'firing a main as an app', 'not an apps one');
+  assert.doesNotMatch(wrong.message, /a [aeiou]/i, `wrong article: "${wrong.message}"`);
+  const other = fireCourse(s, { partyId: party.id, course: 'drinks', items: [{ menuItemId: apps.id }] }, 'agent');
+  refused(other, 'firing an app as a drink', 'is an apps dish');
+  assert.doesNotMatch(other.message, /a [aeiou]/i, `wrong article: "${other.message}"`);
+
+  must(fireCourse(s, { partyId: party.id, course: 'apps', items: [{ menuItemId: apps.id }] }, 'agent'), 'firing the apps');
+  const ticket = s.tickets.find((t) => t.partyId === party.id)!;
+  const swap = swapTicketItem(s, { ticketId: ticket.id, menuItemId: apps.id, toMenuItemId: mains.id }, 'agent');
+  refused(swap, 'swapping across courses', 'an apps ticket');
+  assert.doesNotMatch(swap.message, /a [aeiou]/i, `wrong article: "${swap.message}"`);
 }
 
 // --- Design mutations ---------------------------------------------------------
