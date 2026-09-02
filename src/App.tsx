@@ -352,12 +352,6 @@ export default function App() {
               </>
             )}
           </div>
-          {/* The seed is exposed so a judge can replay the demo (§2). It is provenance,
-              not a room statistic, so it reads as a footer mark rather than sitting in
-              the FLOOR pane's stats grid beside covers and table counts. */}
-          <span className="seed" title="Same seed, same night: the shift replays identically.">
-            SEED {shift.seed}
-          </span>
         </footer>
       </main>
 
@@ -414,6 +408,14 @@ export default function App() {
               )}
             </div>
           </details>
+
+          {/* The seed is exposed so a judge can replay the demo (§2). Provenance, not a
+              room statistic — which is why it is not in the FLOOR pane's stats grid
+              beside covers and table counts. It sits under the activity rail because
+              that is where the record of the night already is. */}
+          <span className="seed" title="Same seed, same night: the shift replays identically.">
+            SEED {shift.seed}
+          </span>
         </aside>
       ) : (
         <aside className="rail rail--right rail--collapsed">
