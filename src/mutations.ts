@@ -17,8 +17,8 @@ import {
   computeConflicts, conflictKey, errorsOnly, floorTop, gap, rawConflicts, tableBox,
 } from './conflicts.ts';
 import { floorPlan } from './seed.ts';
-import { RUNNER_MIN, fireTicket, freeTables, quoteWait, seatAt, tablesHeld } from './sim.ts';
-import { MIN_AISLE_CELLS, fmtClock } from './types.ts';
+import { LAST_SEAT, RUNNER_MIN, fireTicket, freeTables, quoteWait, seatAt, tablesHeld } from './sim.ts';
+import { MIN_AISLE_CELLS, fmtClock, parseClock } from './types.ts';
 import type {
   Conflict, FloorPlan, MenuCourse, MenuItem, Party, Reservation, SousState, Table, Ticket,
   TicketItem,
@@ -38,7 +38,6 @@ const AISLE = Math.ceil(MIN_AISLE_CELLS);
 const WALL = 2;
 /** Two tables can be pushed together if they are no further apart than this. */
 const JOIN_MAX = 2 * MIN_AISLE_CELLS;
-/** Caps on agent-supplied order lines — schema validation is not enough (§12.1). */
 /**
  * Most tables the room will hold. An agent that misreads a note and calls add_table in a
  * loop should hit a wall, not a frozen tab (SOUS_PLAN.md §12.1) — and get_floorplan has
@@ -46,8 +45,13 @@ const JOIN_MAX = 2 * MIN_AISLE_CELLS;
  * asserts against a maxed room rather than the seeded 16.
  */
 const MAX_TABLES = 30;
+/** Caps on agent-supplied order lines — schema validation is not enough (§12.1). */
 const MAX_LINES = 12;
 const MAX_QTY = 12;
+/** Bounds anything an agent or a stuck finger could add in a loop (§12.1). */
+const MAX_BOOKINGS = 40;
+/** §12.1 caps every free-text field at the boundary. */
+const MAX_NOTE = 200;
 /** Table footprint bounds, in cells. Shared by updateTable and the reshape buttons. */
 const MIN_SIDE = 4;
 const MAX_SIDE = 60;
@@ -634,6 +638,49 @@ export function addToWaitlist(
       : `${name}, ${size}, added to the list, quoted ${quotedMinutes} minutes.`,
     { id, quotedMinutes },
   );
+}
+
+/**
+ * Take a booking for tonight — the host stand's other half, beside the walk-in list.
+ *
+ * The seeded book is demo scaffolding that arrives on the first tick (sim.ts,
+ * openTheBook) and stays out entirely if anyone has written their own. This is how they
+ * write their own: somebody running a real service takes bookings here and never sees
+ * the demo's twelve.
+ *
+ * No tool backs this, deliberately. §4's surface is full at 30 and a 31st has to displace
+ * one; the agent already reaches the book through get_waitlist, seat_party and
+ * assign_reservation, and it is the door — not the agent — that takes a booking.
+ */
+export function addReservation(
+  s: SousState,
+  a: { name: string; size: number; time: string | number; notes?: string },
+  _by: Actor,
+): Result<Reservation> {
+  const name = (a.name ?? '').trim().slice(0, 40);
+  const size = Math.round(a.size);
+  if (!name) return no('A booking needs a name.');
+  if (!Number.isFinite(size) || size < 1 || size > 20) return no(`A party is 1 to 20 people; ${a.size} is not.`);
+  if (s.reservations.length >= MAX_BOOKINGS) {
+    return no(`The book is full at ${MAX_BOOKINGS} bookings for one service.`);
+  }
+  const time = parseClock(a.time);
+  if (time === null) return no(`"${a.time}" is not a time. Use 19:30, or minutes from 5:00 PM.`);
+  if (time < 0) return no('Doors are at 5:00 PM. Book them for later than that.');
+  if (time > LAST_SEAT) return no(`Last seating is ${fmtClock(LAST_SEAT)}; ${fmtClock(time)} is after the book closes.`);
+  if (time < s.shift.clock) {
+    return no(`It is already ${fmtClock(s.shift.clock)}. Book them later, or add them to the waitlist instead.`);
+  }
+  const clash = s.reservations.find((r) => r.name.toLowerCase() === name.toLowerCase() && r.time === time);
+  if (clash) return no(`${name} is already booked for ${fmtClock(time)}.`);
+
+  const id = `r-${s.shift.clock}-${s.reservations.length}`;
+  const booking: Reservation = {
+    id, name, size, time, status: 'expected',
+    notes: (a.notes ?? '').trim().slice(0, MAX_NOTE),
+  };
+  s.reservations.push(booking);
+  return ok(`Booked ${name}, ${size}, for ${fmtClock(time)}.`, booking);
 }
 
 /** Shared by seat_party and move_party: are these tables a legal home for this party? */

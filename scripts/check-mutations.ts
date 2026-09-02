@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { computeConflicts, conflictKey, errorsOnly, rawConflicts } from '../src/conflicts.ts';
 import {
   addTable, addToWaitlist, applyLayoutTemplate, applySavedLayout, assignReservation, assignSection,
-  clearTable, findSpot, fireCourse, moveParty, overrideConflict, removeTable, reshape,
+  addReservation, clearTable, findSpot, fireCourse, moveParty, overrideConflict, removeTable, reshape,
   deliverTicket, resolveNote, restore, restoreConflict, retimeTicket, seatParty, setItem86, setPin,
   snapshot, swapTicketItem, updateTable,
 } from '../src/mutations.ts';
@@ -22,6 +22,15 @@ import type { SousState } from '../src/types.ts';
 /** The demo's room: 7:15 PM, three-quarters full, tickets in flight (§9, 1:15). */
 const PEAK = 135;
 const peak = () => advanceTo(seedState(), PEAK);
+/**
+ * A board with its book open, at 5:01 PM.
+ *
+ * seedState() no longer carries the seeded bookings: the book is demand-generator
+ * scaffolding that the first tick deals (sim.ts, openTheBook), so anything testing the
+ * reservation surface has to tick once to have one. Nothing has arrived by 5:01 — the
+ * earliest booking is 6:00 — so this is the empty room plus tonight's book, nothing else.
+ */
+const booked = () => tick(seedState());
 const types = (s: SousState, scope: 'design' | 'service' | 'all' = 'all') =>
   new Set(computeConflicts(s, scope).map((c) => c.type));
 
@@ -348,7 +357,7 @@ function occupiedTable(s: SousState): string {
 {
   // ASSIGNING IS NOT SEATING. The party is not in the room yet and the table may still
   // have somebody at it, so a hold deliberately does not require a free table.
-  const s = seedState();
+  const s = booked();
   const r = s.reservations.find((x) => x.size === 2)!;
   const small = s.plan.tables.find((t) => t.seats === 2)!;
   const big = s.plan.tables.find((t) => t.seats >= 6)!;
@@ -373,7 +382,7 @@ function occupiedTable(s: SousState): string {
 
 {
   // A hold is spent when they sit down, and it does not survive as a stale pointer.
-  const s = seedState();
+  const s = booked();
   const r = s.reservations[0];
   const t = s.plan.tables.find((x) => x.seats >= r.size)!;
   must(assignReservation(s, { reservationId: r.id, tableId: t.id }, 'human'), 'holding a table');
@@ -386,7 +395,7 @@ function occupiedTable(s: SousState): string {
   // THE HOUSE HONOURS A HOLD. Auto-seating is cooperative, not authoritative: if a host
   // said where a booking goes, the simulation waits for that table rather than quietly
   // seating them somewhere else (SOUS_PLAN.md §0).
-  const s = seedState();
+  const s = booked();
   const r = [...s.reservations].sort((a, b) => a.time - b.time)[0];
   const held = s.plan.tables.find((t) => t.seats >= r.size && t.name === 'T16')!;
   must(assignReservation(s, { reservationId: r.id, tableId: held.id }, 'human'), 'holding T16');
@@ -622,7 +631,7 @@ for (const template of ['banquet', 'communal'] as const) {
 }
 
 {
-  const s = seedState();
+  const s = booked();
   s.shift.clock = 60;
   const res = s.reservations[0];
   must(seatParty(s, { reservationId: res.id, tableIds: ['T2'] }, 'agent'), 'seating a reservation');
@@ -734,6 +743,44 @@ for (const template of ['banquet', 'communal'] as const) {
   refused(swapTicketItem(s, { ticketId: cooking.id, menuItemId: onTheStove.menuItemId }, 'agent'), 'swapping something already on the stove', 'cooking');
 }
 
+// --- Taking a booking ----------------------------------------------------------
+// The host stand's other half. The seeded book is scaffolding that arrives on the first
+// tick and stays out if anyone wrote their own (check-sim), so this is the surface a
+// real service actually uses — which is why its refusals have to be right.
+
+{
+  const s = peak(); // 7:15 PM
+  const before = s.reservations.length;
+  const r = must(addReservation(s, { name: 'Okafor', size: 4, time: '20:30', notes: 'Window if you have one' }, 'human'), 'taking a booking')!;
+  assert.equal(s.reservations.length, before + 1, 'the booking did not land');
+  assert.equal(r.time, 210, '20:30 is 210 shift-minutes after 5:00 PM');
+  assert.equal(r.status, 'expected', 'a new booking should be expected, not seated');
+
+  // A time is a time, in either spelling — parseClock is shared with set_clock.
+  const byMinute = must(addReservation(s, { name: 'Petrov', size: 2, time: 200, notes: '' }, 'human'), 'booking by shift-minute')!;
+  assert.equal(byMinute.time, 200, 'a raw shift-minute was not taken as one');
+
+  refused(addReservation(s, { name: '  ', size: 2, time: '20:00' }, 'human'), 'a booking with no name', 'name');
+  refused(addReservation(s, { name: 'Vance', size: 99, time: '20:00' }, 'human'), 'a party of 99', '1 to 20');
+  refused(addReservation(s, { name: 'Vance', size: 2, time: 'half past' }, 'human'), 'a booking for "half past"', 'not a time');
+  refused(addReservation(s, { name: 'Vance', size: 2, time: '23:30' }, 'human'), 'a booking after the book closes', 'last seating');
+  refused(addReservation(s, { name: 'Vance', size: 2, time: '17:30' }, 'human'), 'a booking in the past', 'already');
+  refused(addReservation(s, { name: 'okafor', size: 4, time: '20:30' }, 'human'), 'the same party twice at one time', 'already booked');
+
+  // Bounded, because anything callable in a loop needs a wall (§12.1).
+  const full = peak();
+  let guard = 0;
+  while (addReservation(full, { name: `Party ${guard}`, size: 2, time: '20:00' }, 'human').ok && guard++ < 200);
+  assert.ok(full.reservations.length <= 40, `the book grew to ${full.reservations.length} with no cap`);
+  refused(addReservation(full, { name: 'One more', size: 2, time: '20:00' }, 'human'), 'booking past the cap', 'full');
+
+  // And a refusal writes nothing, like every other one.
+  const clean = peak();
+  const n = clean.reservations.length;
+  addReservation(clean, { name: '', size: 2, time: '20:00' }, 'human');
+  assert.equal(clean.reservations.length, n, 'a refused booking still wrote to the draft');
+}
+
 // --- Running the food ----------------------------------------------------------
 // A course goes out together or not at all, and delivering it by hand beats the house
 // runner — which is the whole reason RUNNER_MIN is wide enough to lose food in.
@@ -833,7 +880,7 @@ for (const template of ['banquet', 'communal'] as const) {
 }
 
 console.log(
-  `mutations ok — 20 mutations, ${new Set(fired).size} conflict rules all firing, ` +
+  `mutations ok — 21 mutations, ${new Set(fired).size} conflict rules all firing, ` +
     'refusals never write, pins refuse both actors, only humans unpin or override, ' +
     'undo rewinds the board and not the clock. Design edits refuse mid-service, placement reports instead of refusing, and only a table that is clear can be pinned.',
 );

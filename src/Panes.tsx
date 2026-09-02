@@ -11,7 +11,7 @@
 import { useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
-  addTable, addToWaitlist, applySavedLayout, assignReservation, assignSection, clearTable,
+  addReservation, addTable, addToWaitlist, applySavedLayout, assignReservation, assignSection, clearTable,
   deliverTicket, fireCourse, overrideConflict, removeTable, reshape, resolveNote,
   restoreConflict, retimeTicket, seatParty, setItem86, setPin, swapTicketItem, updateTable,
 } from './mutations.ts';
@@ -967,6 +967,32 @@ export function HostPane({ sous, act, select }: PaneProps) {
             ))}
           </ul>
         )}
+      </div>
+
+      <div className="block">
+        <span className="eyebrow">TAKE A BOOKING</span>
+        {/* The other half of the door. The seeded book is demo scaffolding that arrives
+            when the shift starts and stays out entirely if anyone has written their own
+            (sim.ts, openTheBook) — this is how they write their own. A native
+            <input type="time"> rather than a picker: §6 says platform first, and it
+            gives keyboard entry, locale formatting and validation for nothing. */}
+        <form
+          className="field field--book"
+          onSubmit={(e) => {
+            const f = fields(e);
+            const name = f('name');
+            const size = Number(f('size'));
+            const time = f('time');
+            const notes = f('notes');
+            act((d) => addReservation(d, { name, size, time, notes }, 'human'));
+          }}
+        >
+          <input name="name" placeholder="Name" maxLength={40} required />
+          <input name="size" type="number" min={1} max={20} defaultValue={2} required />
+          <input name="time" type="time" defaultValue="19:30" required />
+          <input name="notes" placeholder="Allergies, occasion…" maxLength={200} />
+          <button className="tbtn tbtn--sm" type="submit">Book</button>
+        </form>
       </div>
 
       <div className="block">

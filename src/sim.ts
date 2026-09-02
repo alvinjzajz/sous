@@ -7,6 +7,7 @@
 // Determinism: every random draw is seeded on (shift.seed, some stable key) rather
 // than on a carried cursor, so tick stays pure and the same seed replays the same
 // night. advanceTo(seedState(), 135) always produces the same 7:15 PM room.
+import { reservations as seededBook } from './seed.ts';
 import type {
   CourseStage, MenuCourse, MenuItem, Party, Reservation, SousState, Table, Ticket,
   TicketItem, TicketItemStatus, WaitEntry,
@@ -523,12 +524,30 @@ function advanceParties(s: SousState): void {
 }
 
 /** One shift-minute. Pure: clone in, clone out, no React, no undo snapshot (§2). */
+/**
+ * Tonight's bookings, which arrive when the shift starts rather than when the app loads.
+ *
+ * The book is part of the DEMAND GENERATOR, not the kitchen engine (§0's split), so it is
+ * demo scaffolding: a board that boots showing twelve bookings nobody took reads as fake.
+ * Loading it on the first tick keeps every headless path identical — advanceTo(seedState(),
+ * 135) still produces the same 7:15 PM room, because the first tick is where the book lands.
+ *
+ * COOPERATIVE, never authoritative, exactly like seatWaiting: if somebody has already
+ * written bookings of their own, the demo book stays out entirely. Somebody running a real
+ * service takes their own reservations at the host stand and never sees these.
+ */
+function openTheBook(s: SousState): void {
+  if (s.shift.clock > 0 || s.reservations.length > 0) return;
+  s.reservations = structuredClone(seededBook);
+}
+
 export function tick(state: SousState): SousState {
   const s = structuredClone(state);
   if (serviceOver(s)) {
     s.shift.running = false; // last table has gone; the clock does not run all night
     return s;
   }
+  openTheBook(s);
   s.shift.clock += 1;
   arrivals(s);
   seatWaiting(s);

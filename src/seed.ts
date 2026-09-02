@@ -110,7 +110,14 @@ export const menu: MenuItem[] = MENU_ROWS.map(([id, name, stationType, cookMinut
 /** Shift-minutes are counted from 5:00 PM, so 6:00 PM = 60. */
 const at = (h: number, m: number) => (h - 17) * 60 + m;
 
-/** [name, size, hour, minute, notes] — 12 bookings, 38 covers, 6:00-8:30 PM. */
+/**
+ * [name, size, hour, minute, notes] — 12 bookings, 38 covers, 6:00-8:30 PM.
+ *
+ * NOT part of seedState(). The book is demand-generator scaffolding, so it arrives when
+ * the shift starts rather than when the app loads — see openTheBook in sim.ts. A board
+ * that boots with twelve bookings nobody took is the wrong first impression for an app
+ * whose point is that a person and an agent run a real room together.
+ */
 const RES_ROWS: [string, number, number, number, string][] = [
   ['Achebe', 2, 18, 0, ''],
   ['Nakamura', 4, 18, 0, 'Birthday, candle on dessert'],
@@ -147,7 +154,8 @@ export function seedState(): SousState {
     plan: floorPlan,
     overrides: [],
     parties: [],
-    reservations,
+    // Empty: the seeded book arrives on the first tick (sim.ts, openTheBook).
+    reservations: [],
     waitlist: [],
     menu,
     tickets: [],

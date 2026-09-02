@@ -199,6 +199,19 @@ export interface SousState {
   shift: Shift;
 }
 
+/**
+ * fmtClock's inverse: "19:15" or a raw shift-minute to shift-minutes from 5:00 PM.
+ * Returns null on anything that is not a time, so callers can word their own refusal.
+ *
+ * One parser, two callers — set_clock's `to` and the host stand's booking form — because
+ * a second copy is how "19:15" and "7:15 PM" quietly stop meaning the same minute.
+ */
+export function parseClock(raw: string | number): number | null {
+  const hhmm = String(raw).trim().match(/^(\d{1,2}):(\d{2})$/);
+  const minute = hhmm ? (Number(hhmm[1]) - 17) * 60 + Number(hhmm[2]) : Math.round(Number(raw));
+  return Number.isFinite(minute) ? minute : null;
+}
+
 /** Shift-minutes since 5:00 PM -> "7:15 PM". */
 export function fmtClock(minutes: number): string {
   const total = 17 * 60 + minutes;

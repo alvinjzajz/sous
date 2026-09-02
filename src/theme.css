@@ -971,3 +971,15 @@ button { font-family: inherit; }
   text-align: right;
   cursor: default;
 }
+
+/* The booking form carries four fields where the walk-in carries two, so it wraps
+   instead of squeezing each one to nothing in a 344px rail. */
+.field--book { flex-wrap: wrap; }
+.field--book input[name='name'] { flex: 1 1 60%; }
+.field--book input[type='time'] {
+  flex: 0 0 auto;
+  font-family: var(--pixel);
+  font-size: 10px;
+}
+.field--book input[name='notes'] { flex: 1 1 100%; }
+.field--book .tbtn { margin-left: auto; }

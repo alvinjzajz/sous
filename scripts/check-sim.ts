@@ -6,7 +6,7 @@
 // visibly still waiting. Plus determinism, which is the whole demo's contract.
 // Asserts only; no framework.
 import assert from 'node:assert/strict';
-import { seedState } from '../src/seed.ts';
+import { reservations as seededBook, seedState } from '../src/seed.ts';
 import {
   LAST_SEAT, RUNNER_MIN, SERVICE_END, advanceTo, inWindow, openBookings, stationLoad, tick,
   ticketPlatedAt, ticketServedAt,
@@ -248,6 +248,34 @@ assert.deepEqual(before, snapshot, 'tick mutated its argument');
 assert.equal(a.shift.seed, snapshot.shift.seed, 'the seed drifted');
 assert.equal(a.shift.mode, snapshot.shift.mode, 'the sim changed mode behind our back');
 
+// --- the book arrives when the shift starts, not when the app loads --------------
+// It is demand-generator scaffolding, and it is COOPERATIVE: somebody who has taken
+// their own bookings never gets the demo's twelve dropped on top of them.
+
+{
+  const fresh = seedState();
+  assert.equal(fresh.reservations.length, 0, 'a fresh board boots with bookings nobody took');
+
+  const opened = tick(fresh);
+  assert.equal(opened.reservations.length, seededBook.length, 'the first tick did not open the book');
+  assert.equal(
+    opened.reservations.reduce((n, r) => n + r.size, 0), 38,
+    'the book that arrived is not the seeded 38 covers',
+  );
+
+  // Exactly once: a second tick must not deal another twelve.
+  assert.equal(tick(opened).reservations.length, seededBook.length, 'the book was opened twice');
+
+  // And it stays out if somebody brought their own.
+  const mine = seedState();
+  mine.reservations = [{
+    id: 'r-mine', name: 'Okafor', size: 2, time: 90, status: 'expected', notes: '',
+  }];
+  const kept = tick(mine);
+  assert.equal(kept.reservations.length, 1, "the demo book overwrote a real host's bookings");
+  assert.equal(kept.reservations[0].id, 'r-mine', 'the wrong booking survived');
+}
+
 // --- a booking that nobody seats is written off, not left standing all night ---
 {
   // A room with nowhere to put anyone: every table removed, so the house cannot seat.
@@ -255,7 +283,9 @@ assert.equal(a.shift.mode, snapshot.shift.mode, 'the sim changed mode behind our
   const s2 = seedState();
   s2.shift.mode = 'service';
   s2.plan.tables = [];
-  const r0 = [...s2.reservations].sort((a, b) => a.time - b.time)[0];
+  // From the seeded book, not from s2: a fresh state has no bookings on it until the
+  // first tick opens the book (sim.ts, openTheBook).
+  const r0 = [...seededBook].sort((a, b) => a.time - b.time)[0];
   const seen = new Set<string>();
   let cur = s2;
   for (let i = 0; i < r0.time + 40; i++) {

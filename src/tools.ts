@@ -27,7 +27,7 @@ import { ANCHORS } from './mutations.ts';
 import type { Result } from './mutations.ts';
 import { quoteWait, stationLoad } from './sim.ts';
 import type { Sous } from './store.ts';
-import { fmtClock } from './types.ts';
+import { fmtClock, parseClock } from './types.ts';
 import type { MenuItem, SousState } from './types.ts';
 
 /** What a tool implementation gets back. The wrapper turns it into MCP content. */
@@ -234,7 +234,13 @@ export function makeImpls(sous: Sous, view: View): Record<string, Impl> {
         ...s.reservations.filter((r) => r.status !== 'seated').map((r) =>
           `BOOK ${r.id} ${untrusted(r.name)} party of ${r.size} at ${fmtClock(r.time)} — ${r.status}${r.tableId ? ` held on ${r.tableId}` : ''}${r.notes ? ` — ${untrusted(r.notes)}` : ''}`),
       ];
-      return rows.join('\n') || 'Nobody waiting and every booking is seated.';
+      if (rows.length) return rows.join('\n');
+      // "Every booking is seated" is false and misleading on a board that has no book at
+      // all — the shift has not started, so nobody has taken one yet. Two empties, two
+      // sentences, because an agent acts differently on each.
+      return s.reservations.length === 0
+        ? 'No bookings taken yet and nobody at the door. The book fills when the shift starts.'
+        : 'Nobody waiting and every booking is seated.';
     },
 
     add_to_waitlist: (a) => run(sous, (d) => addToWaitlist(d, {
@@ -403,9 +409,8 @@ export function makeImpls(sous: Sous, view: View): Record<string, Impl> {
       }
       if (a.to !== undefined) {
         const raw = str(a, 'to');
-        const hhmm = raw.match(/^(\d{1,2}):(\d{2})$/);
-        const minute = hhmm ? (Number(hhmm[1]) - 17) * 60 + Number(hhmm[2]) : Math.round(Number(raw));
-        if (!Number.isFinite(minute)) throw new Error(`"${plain(raw)}" is not a time. Use "19:15" or shift-minutes from 5:00 PM.`);
+        const minute = parseClock(raw);
+        if (minute === null) throw new Error(`"${plain(raw)}" is not a time. Use "19:15" or shift-minutes from 5:00 PM.`);
         if (minute < s.shift.clock) throw new Error(`It is already ${fmtClock(s.shift.clock)}. The clock does not run backwards; undo_edit rewinds the board instead.`);
         if (minute > 420) throw new Error('Service ends by midnight. Ask for an earlier time.');
         sous.jumpTo(minute);
