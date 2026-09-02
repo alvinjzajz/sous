@@ -5,24 +5,24 @@
 One restaurant, one screen, one dinner service. You and your agent design the room, then
 run it together.
 
+**▶ Live: <https://sous-rm.vercel.app/>**
+
 A submission for [the WebMCP Challenge](https://webmcp.devpost.com/). WebMCP lets a web
 page register tools an AI agent can call directly, so the agent and the person are working
 on the *same live page* rather than through an API.
 
-**Status: feature-complete.** Domain model, seed scenario, floor-plan renderer, the
-simulation engine, the mutation layer with its undo stack and conflict engine, the whole
-human interface (seven detail panes, drag-and-drop layout, design tools, saved floor
-plans, the waitlist and reservation book, the menu board, order entry, the agent activity
-rail), the local autosave, and **all 30 WebMCP tools, registered and tested against
-Chrome's native implementation**. What is left is deploy and the demo video.
+The floor, the clock and the whole night run without WebMCP — open the link and you can
+play the service yourself. To bring the agent in you need a browser that speaks WebMCP:
+Chrome with `chrome://flags/#enable-webmcp-testing` enabled, or ChatGPT's in-app browser.
+Both are verified against the deployed build, with all 30 tools registering and driving
+the board through Chrome's native `document.modelContext`.
 
 **Your night is where you left it.** There is no backend, so the board autosaves to
 `localStorage` and comes back on the next visit — the room, the clock, the parties, the
 tickets and the pins. **Reset is the only thing that puts the seed scenario back**, and it
 is in the transport row at the top of the floor.
 
-Everything a tool can do, a person can do — and as of Day 6 that is literal rather than
-aspirational. The three verbs the agent had and the person did not are all closed: 86'ing
+Everything a tool can do, a person can do — literally, not aspirationally. The three verbs the agent had and the person did not are all closed: 86'ing
 a dish (the menu board), running a plated course to the table (Deliver, in the pass rail),
 and choosing the dishes on an order rather than letting the kitchen compose it (the picker
 beside Fire). Taking a booking runs the other way — it is the one thing the person can do
@@ -72,6 +72,9 @@ Three things make this more than "agent drives the app":
 
 ## Running it
 
+Nothing to install if you only want to look: <https://sous-rm.vercel.app/>. To run it
+yourself —
+
 ```bash
 npm install
 npm run dev
@@ -88,7 +91,9 @@ npm run dev
 framework and no bundler, which is why relative imports carry explicit `.ts` extensions.
 
 To use the agent side you need WebMCP enabled: Chrome with
-`chrome://flags/#enable-webmcp-testing`, or ChatGPT's in-app browser.
+`chrome://flags/#enable-webmcp-testing`, or ChatGPT's in-app browser. There is no build
+step for the tools — they register on mount, against whichever of
+`document.modelContext` / `navigator.modelContext` the browser provides.
 
 ## How it is built
 
@@ -207,6 +212,19 @@ never spread into state.
 What *is* true of this tree today: no `dangerouslySetInnerHTML` or `innerHTML` anywhere, no
 user-controlled `href`/`src`/`style`, no production source maps, no secrets (there is
 nowhere to put one), and a clean `npm audit` over two runtime dependencies.
+
+**And what is true of the deployed origin, audited rather than assumed.** The CSP was
+attacked from inside the page: an injected external script, an inline `<script>`, an
+outbound `fetch` to a third party and an attempt to frame the page are all blocked. No
+source maps, no source files, no `package.json`, no `.env` and no `.git` are reachable —
+the only absolute URLs surviving in the bundle are XML namespace identifiers, so there is
+no mixed content and nothing is fetched. HTTP redirects to HTTPS, and HSTS is set. Through
+Chrome's real `document.modelContext`: a `</untrusted>` breakout, a nested span, a
+JSON-structure escape and a `<script>` payload are all neutralised with the delimiters
+still balanced; unknown parameters, out-of-range sizes, over-long names and off-registry
+enum values are rejected twice over, once by the browser's own schema validation and
+again by the page's, which is the half that matters if a host is laxer than Chrome; an
+agent can pin and cannot unpin; and neither `localStorage` key can pollute a prototype.
 
 `window.__sous` is a deliberate, documented exposure for testing and the Chrome evals
 harness, called out here so it reads as a decision rather than an oversight. It offers
