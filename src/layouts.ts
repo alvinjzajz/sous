@@ -1,6 +1,10 @@
-// Named floor plans in localStorage — the "Floor plans" list in the mockup's left rail,
-// and the `localStorage` half SOUS_PLAN.md §6 promised (SOUS_PLAN.md §8, "Design mode's
-// human half").
+// What Sous keeps in localStorage, which is everything it keeps anywhere: there is no
+// backend (SOUS_PLAN.md §6). Two things under two keys —
+//
+//   1. THE AUTOSAVED SESSION. The whole board, written back on every change, read on
+//      boot. Reopen the page and the room, the clock and the night are where you left
+//      them; Reset is the only thing that puts the seed scenario back.
+//   2. NAMED FLOOR PLANS — the "Floor plans" list in the mockup's left rail.
 //
 // A saved layout is a FloorPlan and nothing else. That is deliberate: `plan` is almost
 // self-contained, and the ONLY reference from the rest of state into it is
@@ -11,9 +15,11 @@
 // Everything here is defensive. localStorage throws outright in some privacy modes, and
 // the stored JSON is editable by anyone with devtools open, so a corrupted value must
 // degrade to "no saved layouts" rather than white-screen the app (§12.2).
-import type { FloorPlan } from './types.ts';
+import type { FloorPlan, SousState } from './types.ts';
 
 const KEY = 'sous.layouts.v1';
+/** Versioned, so a blob from an older build is ignored rather than half-restored. */
+const SESSION = 'sous.session.v1';
 /** Names are user-typed: a value, never schema (CLAUDE.md #7). */
 const MAX_NAME = 40;
 const MAX_LAYOUTS = 12;
@@ -43,28 +49,34 @@ function looksLikeAPlan(v: unknown): v is FloorPlan {
 const SAFE = new Set(['__proto__', 'constructor', 'prototype']);
 const scrub = (key: string, value: unknown) => (SAFE.has(key) ? undefined : value);
 
-function read(): Store {
+/** The one JSON boundary. Both keys come through here, so both get `scrub`. */
+function load(key: string): unknown {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw, scrub);
-    if (!parsed || typeof parsed !== 'object') return {};
-    return Object.fromEntries(
-      Object.entries(parsed as Record<string, unknown>).filter(([, v]) => looksLikeAPlan(v)),
-    ) as Store;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw, scrub) : null;
   } catch {
-    return {}; // unavailable or unparseable: no saved layouts, not a crash
+    return null; // unavailable, or somebody hand-edited it into invalid JSON
   }
 }
 
-function write(store: Store): boolean {
+function save(key: string, value: unknown): boolean {
   try {
-    localStorage.setItem(KEY, JSON.stringify(store));
+    localStorage.setItem(key, JSON.stringify(value));
     return true;
   } catch {
-    return false; // quota or privacy mode. The caller says so; nothing is lost in memory.
+    return false; // quota or privacy mode. Nothing is lost in memory either way.
   }
 }
+
+function read(): Store {
+  const parsed = load(KEY);
+  if (!parsed || typeof parsed !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(parsed as Record<string, unknown>).filter(([, v]) => looksLikeAPlan(v)),
+  ) as Store;
+}
+
+const write = (store: Store) => save(KEY, store);
 
 /** Saved names, newest last-written first is not tracked, so: alphabetical and stable. */
 export function listLayouts(): string[] {
@@ -101,4 +113,48 @@ export function deleteLayout(name: string): { ok: boolean; message: string } {
   delete store[name];
   if (!write(store)) return { ok: false, message: 'This browser will not store layouts.' };
   return { ok: true, message: `Deleted the "${name}" layout.` };
+}
+
+// --- The autosaved session ----------------------------------------------------
+
+const ARRAYS = ['overrides', 'parties', 'reservations', 'waitlist', 'menu', 'tickets', 'notes'] as const;
+
+/**
+ * Shape check for a whole board, to the same standard as looksLikeAPlan: enough that a
+ * stale or hand-edited blob degrades to the seed scenario instead of white-screening the
+ * app. Not a validator — a session blob was written by this app's own reducer.
+ *
+ * The numbers are checked with Number.isFinite rather than `typeof`, because a NaN clock
+ * survives JSON as null but a NaN that got in any other way would poison every countdown
+ * in the model at once.
+ */
+function looksLikeAState(v: unknown): v is SousState {
+  const s = v as Partial<SousState> | null;
+  if (!s || typeof s !== 'object' || !looksLikeAPlan(s.plan)) return false;
+  if (!ARRAYS.every((k) => Array.isArray(s[k]))) return false;
+  const sh = s.shift;
+  return (
+    !!sh && typeof sh.running === 'boolean' &&
+    (sh.mode === 'design' || sh.mode === 'service') &&
+    [sh.clock, sh.speed, sh.seed].every((n) => Number.isFinite(n))
+  );
+}
+
+/** The board this browser was last looking at, or null for "start from the seed". */
+export function readSession(): SousState | null {
+  const s = load(SESSION);
+  return looksLikeAState(s) ? s : null;
+}
+
+/** Fire-and-forget: there is no surface to report a full quota to, and none is owed. */
+export function writeSession(state: SousState): void {
+  save(SESSION, state);
+}
+
+export function clearSession(): void {
+  try {
+    localStorage.removeItem(SESSION);
+  } catch {
+    /* nothing stored, nothing to clear */
+  }
 }

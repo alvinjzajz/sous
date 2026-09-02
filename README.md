@@ -9,13 +9,17 @@ A submission for [the WebMCP Challenge](https://webmcp.devpost.com/). WebMCP let
 page register tools an AI agent can call directly, so the agent and the person are working
 on the *same live page* rather than through an API.
 
-**Status: in progress.** Days 1 to 5 of 6 are complete, plus Day 6's morning — domain
-model, seed scenario, floor-plan renderer, the simulation engine, the mutation layer with
-its undo stack and conflict engine, the whole human interface (seven detail panes,
-drag-and-drop layout, design tools, saved floor plans, the waitlist and reservation book,
-the menu board, order entry, the agent activity rail), and **all 30 WebMCP tools,
-registered and tested against Chrome's native implementation**. What is left is
-`localStorage` autosave, deploy and the demo video.
+**Status: feature-complete.** Domain model, seed scenario, floor-plan renderer, the
+simulation engine, the mutation layer with its undo stack and conflict engine, the whole
+human interface (seven detail panes, drag-and-drop layout, design tools, saved floor
+plans, the waitlist and reservation book, the menu board, order entry, the agent activity
+rail), the local autosave, and **all 30 WebMCP tools, registered and tested against
+Chrome's native implementation**. What is left is deploy and the demo video.
+
+**Your night is where you left it.** There is no backend, so the board autosaves to
+`localStorage` and comes back on the next visit — the room, the clock, the parties, the
+tickets and the pins. **Reset is the only thing that puts the seed scenario back**, and it
+is in the transport row at the top of the floor.
 
 Everything a tool can do, a person can do — and as of Day 6 that is literal rather than
 aspirational. The three verbs the agent had and the person did not are all closed: 86'ing
@@ -90,8 +94,7 @@ To use the agent side you need WebMCP enabled: Chrome with
 
 React + Vite + TypeScript. **No backend, no database, no auth** — state lives in memory.
 No chart, drag or state-management libraries — and no MCP client library either; the
-registration is about a hundred lines against the browser API. (`localStorage` autosave is
-planned, not yet implemented; named floor plans already persist.)
+registration is about a hundred lines against the browser API.
 
 - `src/types.ts` — the domain model. All geometry is in **cells** (1 cell = 0.125 m),
   integers only. Timestamps are absolute shift-minutes; elapsed values are derived at
@@ -134,7 +137,14 @@ planned, not yet implemented; named floor plans already persist.)
   implementations, so every tool either creates conflicts or resolves them.
 - `src/store.ts` — the two paths into state. The clock ticks straight through; only
   mutations snapshot for undo, and a snapshot never carries the clock — so undo rewinds the
-  board without travelling back in time.
+  board without travelling back in time. It also boots from the autosave and writes back
+  on every commit, debounced, so a tick, an undo and a tool call all persist by the same
+  line.
+- `src/layouts.ts` — everything Sous keeps in `localStorage`, which is everything it keeps
+  anywhere: the autosaved session under one key, the named floor plans under another. Both
+  are read defensively — the blob is editable by anyone with devtools open, so a stale or
+  hand-edited value degrades to the seed scenario rather than white-screening the app, and
+  `JSON.parse` runs with a reviver that drops `__proto__`, `constructor` and `prototype`.
 - `public/_headers` and `vercel.json` — the same security headers for either host. Sous
   loads nothing third-party, so the CSP is a real `default-src 'self'`, with
   `'unsafe-inline'` on style-src only because React writes a few values as inline style
@@ -171,10 +181,11 @@ vulnerability list and leaves two risks that genuinely apply: **indirect prompt 
 (anything the agent reads is a potential instruction) and the fact that **the tool surface
 is effectively an unauthenticated public API**.
 
-The tool surface does not exist yet, so most of these are commitments the build is being
-held to rather than properties you can audit in this tree today: tools returning user-typed
-text will carry `untrustedContentHint`, and user strings will never reach a tool schema —
-only author-controlled registries will.
+Both are handled in the tree rather than promised. Every read that returns user-typed text
+carries `untrustedContentHint` and wraps that text in `<untrusted>` spans it cannot escape,
+and no user string ever reaches a tool schema — enums come from author-controlled
+registries only (stations, sections, menu items), never from table or party names.
+`scripts/check-tools.ts` asserts both, tool by tool.
 
 **The pin rule is already real and already tested.** An agent may pin; only a human may
 unpin, so a successful injection still cannot unprotect what a human protected. Agent-
@@ -183,6 +194,13 @@ dishes, course mismatches and unbounded quantities are all rejected by the execu
 than left to schema validation — and every string a tool can write into state is length-
 capped. `scripts/check-mutations.ts` asserts all of it, including that a refused mutation
 never half-writes.
+
+**`localStorage` is the one that gets forgotten**, and it is the app's only persistence:
+the autosaved board is deserialised on every boot, and it is editable by anyone with
+devtools open. Both keys are parsed inside `try/catch` with a reviver that drops
+`__proto__`, `constructor` and `prototype`, then shape-checked before anything is
+restored — a stale or hand-edited blob falls back to the seed scenario. Parsed values are
+never spread into state.
 
 What *is* true of this tree today: no `dangerouslySetInnerHTML` or `innerHTML` anywhere, no
 user-controlled `href`/`src`/`style`, no production source maps, no secrets (there is

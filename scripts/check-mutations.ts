@@ -15,6 +15,7 @@ import {
   snapshot, swapTicketItem, updateTable,
 } from '../src/mutations.ts';
 import type { Result } from '../src/mutations.ts';
+import { clearSession, readSession, writeSession } from '../src/layouts.ts';
 import { floorPlan, seedState } from '../src/seed.ts';
 import { RUNNER_MIN, advanceTo, tick, ticketServedAt } from '../src/sim.ts';
 import type { SousState } from '../src/types.ts';
@@ -877,6 +878,63 @@ for (const template of ['banquet', 'communal'] as const) {
   const forward = restore(snapshot(s), back);
   assert.equal(forward.shift.clock, back.shift.clock, 'redo moved the clock');
   assert.ok(forward.parties.some((p) => p.name === 'Undoable'), 'redo lost the seating');
+}
+
+// --- the autosaved session ----------------------------------------------------
+
+{
+  // localStorage does not exist on plain node. The shim is three methods because that is
+  // all layouts.ts touches; if it ever needs more, this is where you find out.
+  const cells = new Map<string, string>();
+  (globalThis as unknown as { localStorage: Storage }).localStorage = {
+    getItem: (k: string) => cells.get(k) ?? null,
+    setItem: (k: string, v: string) => void cells.set(k, String(v)),
+    removeItem: (k: string) => void cells.delete(k),
+  } as Storage;
+  const KEY = 'sous.session.v1';
+
+  assert.equal(readSession(), null, 'an empty browser claimed to have a saved session');
+
+  // A whole night round-trips unchanged. Close, not peak: this is the biggest the blob
+  // ever gets, every ticket and every departed party still on it.
+  const night = advanceTo(seedState(), 380);
+  writeSession(night);
+  const back = readSession();
+  assert.deepEqual(back, night, 'the autosaved board did not come back the way it went in');
+  assert.ok(back!.tickets.length > 50 && back!.parties.length > 20, 'the round-trip state was trivially small');
+
+  // The blob is a whole night of service under one localStorage key. The 5 MB origin
+  // budget is shared with the saved layouts, so leave it obviously roomy.
+  const bytes = cells.get(KEY)!.length;
+  assert.ok(bytes < 512_000, `the autosaved night is ${bytes} bytes, which is not a small thing to write every 400 ms`);
+
+  // Anything that is not a board degrades to the seed scenario rather than a white screen
+  // (SOUS_PLAN.md §12.2). The blob is editable by anyone with devtools open.
+  for (const junk of [
+    'not json at all',
+    'null',
+    '{}',
+    '[]',
+    JSON.stringify({ ...night, plan: null }),
+    JSON.stringify({ ...night, tickets: 'lots' }),
+    JSON.stringify({ ...night, shift: { ...night.shift, clock: 'quarter past' } }),
+    JSON.stringify({ ...night, shift: { ...night.shift, mode: 'brunch' } }),
+  ]) {
+    cells.set(KEY, junk);
+    assert.equal(readSession(), null, `a hand-edited session was restored: ${junk.slice(0, 40)}`);
+  }
+
+  // The reviver, on the key that gets forgotten. A saved session is deserialised on every
+  // boot, which is the earliest possible moment to pollute a prototype.
+  cells.set(KEY, JSON.stringify({ ...night, __proto__: { pwned: true } }));
+  const gadget = readSession();
+  assert.ok(gadget, 'the scrub reviver threw away a session it should have kept');
+  assert.equal(({} as Record<string, unknown>).pwned, undefined, 'a saved session polluted Object.prototype');
+
+  // Reset is the only way back to the seed, so it has to actually clear the key.
+  clearSession();
+  assert.equal(cells.has(KEY), false, 'Reset left the autosaved board in localStorage');
+  assert.equal(readSession(), null, 'a cleared session still restored');
 }
 
 console.log(
