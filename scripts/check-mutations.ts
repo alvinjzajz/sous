@@ -681,23 +681,54 @@ for (const template of ['banquet', 'communal'] as const) {
 }
 
 {
-  // §9, 1:55: salmon is 86'd, and the tickets carrying it have to be fixable.
+  // §9, 1:55, in full: the agent rings in the mains, salmon goes off, and it fixes
+  // every ticket it just wrote.
+  //
+  // THE BOARD DOES NOT SERVE THIS BEAT BY ITSELF — measured Sep 2. compose() puts no
+  // salmon on any live ticket at 7:15 PM; the first reaches the board at 7:27 and it
+  // never carries more than two at once, of which at most ONE is ever still `queued`
+  // and so swappable. This block used to hide that behind an `if (queued)` guard and
+  // an empty-vs-empty deepEqual, both of which passed while asserting nothing.
+  //
+  // So the beat FIRES the salmon rather than hoping for it. That is not a workaround:
+  // it is the truer demo, because ringing in an order is what a person does before an
+  // 86 lands on it, and it is the only thing in §9 that exercises fire_course's
+  // optional `items` — the one mockup feature that ADDED WebMCP surface (§8).
   const s = peak();
   const salmon = s.menu.find((m) => m.id === 'm-salmon')!;
   const halibut = s.menu.find((m) => m.id === 'm-halibut')!;
+
+  // The three tables sitting on apps with no mains rung in. T12 is left out on purpose:
+  // it is the anniversary table §9 pins at 2:40, and this beat must not disturb it.
+  const tables = ['T6', 'T11', 'T15'];
+  for (const tableId of tables) {
+    must(
+      fireCourse(s, { tableId, course: 'mains', items: [{ menuItemId: salmon.id, qty: 2 }] }, 'agent'),
+      `ringing in salmon mains for ${tableId}`,
+    );
+  }
   const carrying = s.tickets.filter((t) => t.items.some((i) => i.menuItemId === salmon.id && i.status !== 'served'));
+  // A literal 3, not tables.length: an empty list compared against itself is exactly
+  // the vacuous pass this block was rewritten to remove.
+  assert.equal(carrying.length, 3, `§9's 1:55 beat needs three live salmon tickets, not ${carrying.length}`);
+  assert.ok(
+    carrying.every((t) => t.items.some((i) => i.menuItemId === salmon.id && i.status === 'queued')),
+    'a freshly fired ticket is already past queued, so swap_ticket_item could never fix it',
+  );
+
   const out = must(setItem86(s, { menuItemId: 'Grilled Salmon' }, 'agent'), "86'ing the salmon by name")!;
   assert.ok(salmon.is86d, 'the 86 did not stick');
   assert.deepEqual(out.tickets.sort(), carrying.map((t) => t.id).sort(), 'the 86 did not report the tickets carrying it');
   refused(setItem86(s, { menuItemId: 'm-salmon' }, 'agent'), "86'ing it twice", 'already');
+  assert.ok(types(s).has('ticket-86'), "an 86'd item on an open ticket raises nothing");
 
-  const queued = carrying.find((t) => t.items.some((i) => i.menuItemId === salmon.id && i.status === 'queued'));
-  if (queued) {
-    assert.ok(types(s).has('ticket-86'), "an 86'd item on an open ticket raises nothing");
-    must(swapTicketItem(s, { ticketId: queued.id, menuItemId: salmon.id, toMenuItemId: halibut.id }, 'agent'), 'swapping salmon for halibut');
-    assert.ok(!queued.items.some((i) => i.menuItemId === salmon.id), 'the salmon is still on the ticket');
-    assert.equal(queued.dueAt, queued.firedAt + Math.max(...queued.items.map((i) => s.menu.find((m) => m.id === i.menuItemId)!.cookMinutes)) + RUNNER_MIN, 'the due time was not recomputed after the swap');
+  for (const t of carrying) {
+    must(swapTicketItem(s, { ticketId: t.id, menuItemId: salmon.id, toMenuItemId: halibut.id }, 'agent'), `swapping ${t.id} to halibut`);
+    assert.ok(!t.items.some((i) => i.menuItemId === salmon.id), `the salmon is still on ${t.id}`);
+    assert.equal(t.dueAt, t.firedAt + Math.max(...t.items.map((i) => s.menu.find((m) => m.id === i.menuItemId)!.cookMinutes)) + RUNNER_MIN, `${t.id}'s due time was not recomputed after the swap`);
   }
+  assert.ok(!types(s).has('ticket-86'), 'the board still flags an 86 on a ticket after every swap');
+
   const cooking = s.tickets.find((t) => t.items.some((i) => i.status === 'cooking'))!;
   const onTheStove = cooking.items.find((i) => i.status === 'cooking')!;
   refused(swapTicketItem(s, { ticketId: cooking.id, menuItemId: onTheStove.menuItemId }, 'agent'), 'swapping something already on the stove', 'cooking');
