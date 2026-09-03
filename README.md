@@ -101,6 +101,72 @@ React + Vite + TypeScript. **No backend, no database, no auth** — state lives 
 No chart, drag or state-management libraries — and no MCP client library either; the
 registration is about a hundred lines against the browser API.
 
+### The WebMCP registration, concretely
+
+WebMCP's whole author-facing surface is `registerTool`: a `name` the agent calls, a
+`description` it decides *with*, an `inputSchema` for the arguments, and an `execute` that
+runs. Sous makes that call **once**, over a table of 30 definitions, rather than writing
+thirty literal copies of it — so `grep registerTool src/webmcp.ts` finds the wiring, and
+`src/tools.ts` holds the tools themselves.
+
+```js
+// src/tools.ts — one of the 30 definitions, abridged. Schema and implementation live in
+// one file so the two cannot drift apart.
+{
+  name: 'seat_party',
+  description: 'Sit a booking or a walk-in down, at one table or several combined. Checks '
+             + 'the seats fit and refuses a pinned table. With assignOnly, holds the table…',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tableIds:   { type: 'array',  items: { type: 'string' }, minItems: 1, maxItems: 4, description: 'Table id or name. Give two or more to combine them.' },
+      name:       { type: 'string', maxLength: 40, description: 'Name, for a party that is on neither list.' },
+      size:       { type: 'number', minimum: 1, maximum: 20, description: 'How many people…' },
+      assignOnly: { type: 'boolean', description: 'Hold the table for this booking instead of seating now.' },
+    },
+    required: ['tableIds'],
+  },
+}
+
+// src/webmcp.ts — the call itself, once per definition, against whatever the browser offers
+for (const target of targets()) {        // document.modelContext / navigator.modelContext, deduped
+  for (const tool of tools) {
+    target.registerTool(tool, { signal: ac.signal });
+  }
+}
+
+// src/webmcp.ts — the execute wrapped around every implementation (abridged: the real one
+// also caps output at Chrome's ceiling and yields a paint before a mutating tool returns)
+execute: async (args = {}) => {
+  try {
+    validate(args, t.inputSchema, t.name);                       // the trust boundary
+    return { content: [{ type: 'text', text: impls[t.name](args) }] };
+  } catch (e) {
+    return { content: [{ type: 'text', text: e.message }], isError: true };  // a refusal is a RESULT
+  }
+}
+```
+
+Three things sit on top of the minimum, and each one is a decision rather than a default.
+`additionalProperties: false` is forced onto every schema, so an extra key is rejected
+instead of ignored. `annotations` default to the careful values — `readOnlyHint: false`,
+`untrustedContentHint: true` — because a mutating tool mislabelled read-only is a security
+defect, not a metadata typo. And **a refusal comes back as a result carrying `isError`,
+never as a thrown error**: tested against Chrome's real implementation, a throw reaches the
+agent as a bare `UnknownError` with the message stripped from `message`, `cause` and
+`stack`, which would have silently replaced every refusal sentence in the app.
+
+Registration happens once on mount with an empty dependency array; the implementations live
+behind a ref that every render refreshes, so a tool called an hour into the shift still sees
+current state without the effect re-running. Putting state in the deps would re-register 30
+tools on every tick of the clock.
+
+Verified on the deployed page, not just locally: `document.modelContext.getTools()` returns
+all 30, each stamped `origin: "https://sous-rm.vercel.app"` — they are held by the browser's
+registry, which is what any WebMCP client reads.
+
+### The files
+
 - `src/types.ts` — the domain model. All geometry is in **cells** (1 cell = 0.125 m),
   integers only. Timestamps are absolute shift-minutes; elapsed values are derived at
   render, never stored, which is what stops undo resurrecting a stale countdown.
@@ -121,13 +187,12 @@ registration is about a hundred lines against the browser API.
   depends on how much a person has typed goes through `capLines()`, which drops rows until
   the result fits and says how many it dropped — silent truncation reads to a model as a
   board with less on it than there is.
-- `src/webmcp.ts` — registration and the trust boundary. Registers once on mount with the
-  implementations behind a ref, so tools never go stale and never re-register; both
-  `document.modelContext` and `navigator.modelContext`, deduped, with `AbortController`
-  cleanup. **A refusal comes back as an MCP result carrying `isError`, not a thrown
-  error** — tested against Chrome's real implementation, where a throw reaches the agent
-  as a generic `UnknownError` with the message stripped, which would have silently
-  replaced every refusal sentence in the app.
+- `src/webmcp.ts` — registration and the trust boundary, as described above, with
+  `AbortController` cleanup so an unmount deregisters. `validate()` covers only what a
+  schema can express — required keys, types, bounds, lengths, enums — because the schema
+  is advisory and the executor is where it is enforced. Every domain rule (does the table
+  exist, does the party fit, is it pinned) stays in `mutations.ts`, which is the one place
+  a button and a tool both go through.
 - `src/sim.ts` — the simulation engine. `tick(state) → state` is pure and React-free, so
   it runs headless. Parties advance on dwell timers; items do not start cooking when a
   ticket is fired but when a slot frees at their station, so fire time and start time are
